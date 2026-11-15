@@ -1,11 +1,12 @@
 /**
  * hover-glossary / test/run.mjs
  *
- * 顺序加载全部测试文件。
- * 说明: 沙箱禁止 node --test 启动子进程 (spawn EPERM), 因此这里用动态 import
- * 在同一个进程里加载各测试文件, 再由 node:test 汇总输出。
+ * Последовательно загружает все тестовые файлы.
+ * Почему так: песочница запрещает запуск дочерних процессов node --test
+ * (spawn EPERM), поэтому тестовые файлы импортируются динамически в одном
+ * процессе, а node:test сам выводит сводку.
  *
- * 运行: node test/run.mjs   (或 npm test)
+ * Запуск: node test/run.mjs   (или npm test)
  */
 import test from 'node:test';
 
@@ -15,5 +16,6 @@ for (const file of files) {
   await import(file);
 }
 
-// 顶层 await 之后, node:test 会在事件循环清空时汇总输出全部用例结果
+// После top-level await node:test выводит все результаты, когда очередь задач
+// опустеет.
 await new Promise((done) => test.after(() => done()));

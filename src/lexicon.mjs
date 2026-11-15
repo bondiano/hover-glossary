@@ -1,27 +1,34 @@
 /**
  * hover-glossary / lexicon.mjs
  *
- * 词语 -> 联想条目 (1 -> N) 的核心数据结构与查询算法。
+ * Ядро словаря: слово -> 1..N толкований, а также алгоритм поиска под курсором.
  *
- * 设计要点
- * --------
- * 1. 存储:  Map<normalizedKey, Entry[]>
- *      - key  = normalize(term): 去首尾标点、折叠内部空白、case-fold。
- *      - value= 有序条目数组, 索引 0 为最佳解释, 顺序对外稳定可见 (示例里的 "1、世卫组织 2、谁")。
- *      - 这是本次需求的核心: 一个词显式对应 N 个条目, 不做去重合并。
- * 2. 索引:  按 key 长度分桶 (Map<length, Set<key>>) + maxKeyLength。
- *      查询时只从 min(maxKeyLength, cursor + MAX_SCAN) 长度向下试探,
- *      命中即返回 —— 即 "最长词优先"(最长匹配)。
- * 3. 游标定位: tokenAt(text, cursor)
- *      以光标/鼠标位置为中心向两侧扩，得到所在词；中英混排都能工作
- *      (CJK 表格文字按字切分, 拉丁词连续读取)。
+ * Ключевые решения
+ * ----------------
+ * 1. Хранение: Map<normalizedKey, Entry[]>
+ *      - key  = normalize(term): обрезка пунктуации по краям, схлопывание
+ *        внутренних пробелов, приведение к нижнему регистру.
+ *      - value= упорядоченный массив толкований; индекс 0 — лучшее объяснение,
+ *        порядок стабилен и виден снаружи (в примере "1) ВОЗ 2) кто").
+ *      - Это суть плагина: у одного слова явно N толкований, без слияния и
+ *        дедупликации.
+ * 2. Индекс:  разбиение по длине ключа (Map<length, Set<key>>) + maxKeyLength.
+ *      Поиск идёт от min(maxKeyLength, cursor + MAX_SCAN) вниз и
+ *      останавливается на первом попадании — то есть побеждает самое длинное
+ *      совпадение.
+ * 3. Позиция курсора: tokenAt(text, cursor)
+ *      Слово определяется расширением в обе стороны от позиции курсора/мыши;
+ *      работает и для кириллицы, и для латиницы, и для смешанного текста
+ *      (CJK-текст режется по символам, слова латиницы и кириллицы читаются
+ *      целиком).
  *
- * 该文件是纯函数模块, 无任何运行时依赖, 因此同一份实现既能被 Node 测试直接 import,
- * 也能被 scripts/build-client.mjs 内联进 Cordis 客户端闭包 (客户端不允许 import)。
+ * Файл — чистый модуль без зависимостей: одна и та же реализация
+ * импортируется тестами Node и встраивается scripts/build-client.mjs в
+ * клиентскую сборку (в браузере import недоступен).
  */
 
 /* ------------------------------------------------------------------ *
- * 文本规范化
+ * Нормализация текста
  * ------------------------------------------------------------------ */
 
 const APOSTROPHES = /[\u2018\u2019\u02bc\u02b9`]/g;
@@ -29,8 +36,8 @@ const PUNCT_EDGE = /^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu;
 const CJK_SPACE = /(?<=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])\s+(?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])/gu;
 
 /**
- * 把任意书写形式收敛成查询键。
- * `WHO` / `who` / `"who,"` / `ＷＨＯ` 都归一到同一个键 `who`。
+ * Приводит любое написание к ключу поиска.
+ * `WHO` / `who` / `"who,"` сводятся к одному ключу `who`.
  * @param {unknown} input
  * @returns {string}
  */
@@ -39,14 +46,16 @@ export function normalize(input) {
   let s = input.normalize('NFKC');
   s = s.replace(APOSTROPHES, "'");
   s = s.replace(/\s+/g, ' ');
-  // 中文之间的空格视为排版噪声 ("世 卫 组织" -> "世卫组织")
+  // Пробелы между иероглифами считаем типографским шумом.
+  // Правило действует только на CJK и не трогает пробелы в русских фразах.
   s = s.replace(CJK_SPACE, '');
   s = s.replace(PUNCT_EDGE, '');
   return s.toLowerCase();
 }
 
 /**
- * 规范化展示词: 只裁掉首尾空白, 保留原始大小写 (展示用, 不参与比较)。
+ * Нормализация отображаемого термина: обрезаются только внешние пробелы,
+ * исходный регистр сохраняется (нужен для показа, не для сравнения).
  * @param {unknown} input
  * @returns {string}
  */
@@ -56,21 +65,26 @@ export function displayTerm(input) {
 }
 
 /* ------------------------------------------------------------------ *
- * 游标 -> 词
+ * Курсор -> слово
  * ------------------------------------------------------------------ */
 
 const WORD_CHAR =
   /[\p{L}\p{N}\p{M}\u2019\u02bc'\u05f3\u30fb\u30fc\uff10-\uff19\uff21-\uff3a\uff41-\uff5a]/u;
 
-/** @param {string} ch @returns {boolean} */
+/**
+ * Символ границы слова: любая буква/цифра/комбинирующий знак (включая
+ * кириллицу и латиницу) плюс несколько типографских апострофов.
+ * @param {string} ch @returns {boolean}
+ */
 export function isWordChar(ch) {
   if (typeof ch !== 'string' || ch.length === 0) return false;
   return WORD_CHAR.test(ch);
 }
 
 /**
- * 取出 `text` 中 `cursor` 位置所在的词。
- * `cursor` 可以指向词内任意字符, 也可以是词后一位 (紧跟结尾的光标)。
+ * Возвращает слово, в которое попадает `cursor` в `text`.
+ * `cursor` может указывать на любой символ слова или на позицию сразу
+ * после него.
  * @param {string} text
  * @param {number} cursor
  * @returns {{term:string,start:number,end:number}|null}
@@ -79,8 +93,9 @@ export function tokenAt(text, cursor) {
   if (typeof text !== 'string' || text.length === 0) return null;
   if (!Number.isFinite(cursor)) return null;
   let i = Math.max(0, Math.min(text.length, Math.trunc(cursor)));
-  // 光标停在词尾右侧 (紧邻的下一位) 时, 向左退一格归入该词;
-  // 落在真正的空白/标点上时不归属任何词, 由 lookupAt 自行决定是否回退到前一个词。
+  // Курсор сразу справа от слова — сдвигаем на символ влево и считаем это
+  // слово; настоящий пробел или пунктуация не принадлежат слову, и тогда
+  // lookupAt сам решает, откатиться ли к предыдущему слову.
   if (i >= text.length) {
     if (i > 0 && isWordChar(text[i - 1])) i -= 1;
     else return null;
@@ -96,27 +111,27 @@ export function tokenAt(text, cursor) {
 
 /**
  * @typedef {object} GlossaryEntry
- * @property {string} text    条目正文 (解释 / 联想)
- * @property {string} [kind]  条目类型, 例如 缩写 / 术语 / 人名
- * @property {number} [weight] 越大越靠前; 同权重保持插入顺序
+ * @property {string} text     текст толкования (объяснение)
+ * @property {string} [kind]   тип толкования, например «аббр.» / «термин»
+ * @property {number} [weight] чем больше, тем выше; равные веса сохраняют порядок вставки
  * @property {string[]} [tags]
  */
 
 /**
- * Lexicon: 词语 -> 1..N 条目 的索引。
+ * Lexicon: индекс «слово -> 1..N толкований».
  */
 export class Lexicon {
   /**
-   * @param {{maxEntriesPerTerm?:number}} [options] 单个词最多保留多少条目 (默认不限, 即 1 -> N)
+   * @param {{maxEntriesPerTerm?:number}} [options] сколько толкований оставлять на слово (по умолчанию без ограничения, то есть 1 -> N)
    */
   constructor(options = {}) {
     /** @type {Map<string, GlossaryEntry[]>} */
     this.entries = new Map();
-    /** @type {Map<string, string>} 规范化键 -> 展示词 (保留大小写) */
+    /** @type {Map<string, string>} нормализованный ключ -> отображаемый термин (регистр сохранён) */
     this.display = new Map();
-    /** @type {Map<number, Set<string>>} 键长度 -> 键集合 */
+    /** @type {Map<number, Set<string>>} длина ключа -> набор ключей */
     this.byLength = new Map();
-    /** @type {string[]} 插入顺序, 便于确定性遍历 */
+    /** @type {string[]} порядок вставки для детерминированного обхода */
     this.order = [];
     this.maxKeyLength = 0;
     this.maxEntriesPerTerm =
@@ -125,12 +140,12 @@ export class Lexicon {
         : Infinity;
   }
 
-  /** 已登记的词数 */
+  /** Число зарегистрированных слов */
   get size() {
     return this.entries.size;
   }
 
-  /** 条目总数 */
+  /** Общее число толкований */
   get itemCount() {
     let n = 0;
     for (const list of this.entries.values()) n += list.length;
@@ -138,11 +153,11 @@ export class Lexicon {
   }
 
   /**
-   * 登记一个词及其 1..N 个条目。
+   * Регистрирует слово и его 1..N толкований.
    * @param {string} term
    * @param {Array<string|GlossaryEntry>} items
    * @param {{replace?:boolean}} [opts]
-   * @returns {Lexicon} this (链式)
+   * @returns {Lexicon} this (цепочка)
    */
   add(term, items, opts = {}) {
     const key = normalize(term);
@@ -156,7 +171,7 @@ export class Lexicon {
       if (text.length === 0) continue;
       incoming.push({
         text,
-        kind: typeof entry.kind === 'string' ? entry.kind : '释义',
+        kind: typeof entry.kind === 'string' ? entry.kind : 'толкование',
         weight: Number.isFinite(entry.weight) ? entry.weight : 0,
         tags: Array.isArray(entry.tags) ? entry.tags.slice() : [],
       });
@@ -165,9 +180,9 @@ export class Lexicon {
 
     const existing = opts.replace === true ? [] : this.entries.get(key) || [];
     const merged = existing.concat(incoming).slice(0, this.maxEntriesPerTerm);
-    // 稳定排序: 仅按 weight 降序, 同权重保持登记先后
+    // Стабильная сортировка: только по weight, при равенстве — порядок вставки
     merged.sort((a, b) => b.weight - a.weight);
-    // 重新编序号, 保证展示顺序与数据顺序一致
+    // Перенумерация, чтобы порядок показа совпадал с порядком данных
     merged.forEach((e, i) => {
       e.index = i + 1;
     });
@@ -184,7 +199,7 @@ export class Lexicon {
   }
 
   /**
-   * 批量登记 { term: [entries] } 字典。
+   * Загружает словарь { term: [entries] } целиком.
    * @param {Record<string, Array<string|GlossaryEntry>>} table
    */
   load(table) {
@@ -198,7 +213,8 @@ export class Lexicon {
   }
 
   /**
-   * 查询: 一个词 -> N 个条目 (副本, 调用方无法篡改内部结构)。
+   * Запрос: слово -> N толкований (копии, вызывающий не может испортить
+   * внутреннюю структуру).
    * @param {string} term
    * @returns {GlossaryEntry[]}
    */
@@ -209,22 +225,27 @@ export class Lexicon {
   }
 
   /**
-   * 光标查询: 从最长候选开始试探, 命中即返回。
+   * Поиск по курсору: перебираем кандидатов от длинных к коротким и
+   * останавливаемся на первом попадании.
    * @param {string} text
    * @param {number} cursor
    * @param {{window?:number}} [opts]
    * @returns {{term:string,key:string,start:number,end:number,entries:GlossaryEntry[]}}
    */
   lookupAt(text, cursor, opts = {}) {
-    const window = Math.min(
-      Number.isFinite(opts.window) ? opts.window : 16,
-      this.maxKeyLength > 0 ? this.maxKeyLength : 16,
-    );
+    // Окно чтения вправо: по умолчанию — длина самого длинного слова словаря.
+    // Фиксированные 16 символов обрезали бы длинные русские словосочетания.
+    const window = Number.isFinite(opts.window)
+      ? opts.window
+      : this.maxKeyLength > 0 ? this.maxKeyLength : 16;
     let hit = tokenAt(text, cursor);
-    // 光标没有落在词里时的两种情形:
-    //  1) 紧跟在某个词右边的空白 -> 锚定该词, 面板保留用户刚看过的那个词;
-    //  2) 被空白围住的纯空白位置 -> 向右跳到下一个词, 不越过它去猜左边的词;
-    //  3) 其它非词字符 (标点) 且左侧紧邻词 -> 同样锚定左侧的词。
+    // Курсор не попал в слово — три случая:
+    //  1) пробел сразу справа от слова -> привязываемся к этому слову,
+    //     чтобы подсказка не пропадала у только что просмотренного слова;
+    //  2) позиция в пустом месте между пробелами -> идём вправо к
+    //     следующему слову и не угадываем слово слева;
+    //  3) другой не-словесный символ (пунктуация) сразу после слова ->
+    //     тоже привязываемся к левому слову.
     if (!hit) {
       const pos = Math.max(0, Math.min(text.length, Math.trunc(cursor || 0)));
       const prev = pos > 0 ? text[pos - 1] : '';
@@ -242,11 +263,10 @@ export class Lexicon {
     const tokenStart = hit ? Math.min(hit.start, Math.max(0, Math.min(text.length, Math.trunc(cursor || 0)))) : 0;
     const tokenEnd = hit ? hit.end : 0;
     const anchored = hit !== null && hit !== undefined;
-    // 扫描起点候选: 从光标所在 token 的首字符一直到光标本身。
-    // 向左回溯是必要的 —— CJK 表格文字整段成一个 token, 光标压在 "世" 上时
-    // 命中的应当是 "世卫组织" (从 "世" 开始), 而光标压在 "界" 上时应当
-    // 仍能命中 "世界卫生组织" (从 "世" 开始)。
-    // 不越过 token 首字符, 因此不会吞进前一个独立 token 的字。
+    // Стартовые позиции-кандидаты: от первого символа токена до самого курсора.
+    // Откат влево необходим для CJK: сплошной текст режется на один токен,
+    // и CJK-слово должно находиться с любой своей позиции.
+    // За первый символ токена не выходим, поэтому чужие токены не захватываем.
     const starts = [];
     if (anchored) {
       const cursorPos = Math.max(0, Math.min(text.length, Math.trunc(cursor || 0)));
@@ -258,15 +278,16 @@ export class Lexicon {
     const cursorPos = anchored ? Math.max(0, Math.min(text.length, Math.trunc(cursor || 0))) : starts[0];
     const candidates = [];
     for (const start of starts) {
-      // 每个起点最多向右读 "最长登记词" 个字符; 但光标所在 token 必须被读完,
-      // 否则 "世界卫生组织发布报告" 这类长 token 的内部词会被截断。
+      // Каждый старт читает вправо не больше самого длинного слова словаря;
+      // но токен под курсором нужно дочитать целиком, иначе внутренние слова
+      // длинного CJK-токена внутренние слова будут обрезаны.
       const stop = Math.min(text.length, Math.max(anchored && start === tokenStart ? tokenEnd : 0, start + Math.max(1, window)));
       let sawWordChar = false;
       for (let end = start + 1; end <= stop; end += 1) {
         const ch = text[end - 1];
         if (isWordChar(ch)) {
           sawWordChar = true;
-          // 候选必须覆盖光标, 否则只是光标左侧的碎片
+          // Кандидат обязан накрывать курсор, иначе это обрывок слева
           if (end > cursorPos) {
             candidates.push({ key: normalize(text.slice(start, end)), start, end });
           }
@@ -277,16 +298,15 @@ export class Lexicon {
       }
     }
 
-    // 最长优先
+    // Сначала самые длинные
     candidates.sort((a, b) => b.end - b.start - (a.end - a.start) || a.start - b.start);
     for (const candidate of candidates) {
       const list = this.entries.get(candidate.key);
       if (list && list.length > 0) {
-        // 拉丁词必须完整匹配: WHO 不应命中 WHOLE, API 不应命中 RAPID。
-        // 汉字没有这种边界, 仍允许在连续正文中寻找已登记的多字词。
-        const latin = /[\p{Script=Latin}\p{N}_]/u;
-        if (latin.test(text[candidate.start]) && candidate.start > 0 && latin.test(text[candidate.start - 1])) continue;
-        if (latin.test(text[candidate.end - 1]) && candidate.end < text.length && latin.test(text[candidate.end])) continue;
+        // Слова на латинице и кириллице требуют границы слова: WHO не должно
+        // срабатывать в WHOLE, «токен» — в «токенизатор». У иероглифов границ
+        // нет, поэтому зарегистрированные CJK-слова ищутся в сплошном тексте.
+        if (blocksWordBoundary(text, candidate.start, candidate.end)) continue;
         return {
           term: text.slice(candidate.start, candidate.end),
           key: candidate.key,
@@ -296,7 +316,7 @@ export class Lexicon {
         };
       }
     }
-    // 兜底: 光标所在词整体
+    // Запасной вариант: слово под курсором целиком
     if (hit) {
       const key = normalize(hit.term);
       const list = this.entries.get(key);
@@ -308,7 +328,8 @@ export class Lexicon {
   }
 
   /**
-   * 列出全部词条 (确定性顺序: 登记先后 -> 同长度分组)。
+   * Полный список толкований (детерминированный порядок: порядок регистрации
+   * -> группировка по длине).
    * @returns {Array<{term:string,key:string,entries:GlossaryEntry[]}>}
    */
   list() {
@@ -320,29 +341,49 @@ export class Lexicon {
   }
 
   /**
-   * 极简自检: 任何键的长度必须与分桶一致, 且条目序号连续。
+   * Минимальная самопроверка: длина каждого ключа должна совпадать с
+   * корзиной, а индексы толкований идти подряд.
    * @returns {{ok:boolean, problems:string[]}}
    */
   validate() {
     const problems = [];
     for (const key of this.order) {
       const list = this.entries.get(key);
-      if (!list || list.length === 0) problems.push(`${key}: 没有条目`);
+      if (!list || list.length === 0) problems.push(`${key}: нет толкований`);
       else list.forEach((e, i) => {
-        if (e.index !== i + 1) problems.push(`${key}: 序号错位 (${e.index} != ${i + 1})`);
+        if (e.index !== i + 1) problems.push(`${key}: сбилась нумерация (${e.index} != ${i + 1})`);
       });
       const bucket = this.byLength.get(key.length);
-      if (!bucket || !bucket.has(key)) problems.push(`${key}: 未进入长度分桶`);
+      if (!bucket || !bucket.has(key)) problems.push(`${key}: ключ не попал в корзину длины`);
     }
     if (this.maxKeyLength > 0 && !this.byLength.has(this.maxKeyLength)) {
-      problems.push(`maxKeyLength=${this.maxKeyLength} 无对应分桶`);
+      problems.push(`maxKeyLength=${this.maxKeyLength} без своей корзины`);
     }
     return { ok: problems.length === 0, problems };
   }
 }
 
 /**
- * 由表构建 Lexicon 的便捷入口。
+ * Проверяет, что найденный фрагмент не является частью более длинного слова.
+ * Проверка применяется к буквам и цифрам латиницы и кириллицы, но не к
+ * иероглифам: у CJK нет явных границ слова, там совпадение внутри текста
+ * — норма.
+ * @param {string} text
+ * @param {number} start
+ * @param {number} end
+ * @returns {boolean} true, если совпадение нужно отбросить
+ */
+function blocksWordBoundary(text, start, end) {
+  const boundary = /[\p{L}\p{N}_]/u;
+  const cjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+  const blocks = (ch) => boundary.test(ch) && !cjk.test(ch);
+  if (blocks(text[start]) && start > 0 && blocks(text[start - 1])) return true;
+  if (blocks(text[end - 1]) && end < text.length && blocks(text[end])) return true;
+  return false;
+}
+
+/**
+ * Удобная точка входа: собрать Lexicon из таблицы.
  * @param {Record<string, Array<string|GlossaryEntry>>} table
  * @param {{maxEntriesPerTerm?:number}} [options]
  * @returns {Lexicon}

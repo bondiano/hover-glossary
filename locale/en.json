@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Hover glossary",
+    "description": "Hover a word in the chat body to see its 1..N glossary entries. The dictionary runs in the browser: no model requests, no tools, no system prompt."
+  }
+}

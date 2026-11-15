@@ -1,13 +1,14 @@
 {
   "name": "hover-glossary",
-  "version": "1.1.0",
-  "description": "DSH 客户端插件: 光标停在对话正文的词上, 显示该词的 1..N 条联想",
+  "version": "1.2.0",
+  "description": "Клиентский плагин DSH: наведите курсор на слово в тексте диалога — всплывающая подсказка покажет 1..N толкований",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
@@ -15,6 +16,7 @@
     "src",
     "scripts",
     "plugin",
+    "locale",
     "cordis.patch.yml",
     "README.md",
     "DEVELOPMENT.md",
@@ -42,19 +44,16 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AlyceStocking/hover-glossary.git"
+    "url": "https://github.com/bondiano/hover-glossary.git"
   },
-  "homepage": "https://github.com/AlyceStocking/hover-glossary#readme",
+  "homepage": "https://github.com/bondiano/hover-glossary#readme",
   "bugs": {
-    "url": "https://github.com/AlyceStocking/hover-glossary/issues"
+    "url": "https://github.com/bondiano/hover-glossary/issues"
   },
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",
-    "hover-glossary"
-  ],
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  }
+    "hover-glossary",
+    "russian"
+  ]
 }

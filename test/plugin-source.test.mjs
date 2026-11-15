@@ -1,12 +1,15 @@
 /**
  * hover-glossary / test/plugin-source.test.mjs
  *
- * 用例 8: 动态插件版本的两个函数体都是合法的普通 JS 函数体 (无 ESM 语法)。
- * 用例 9: 动态版本的 Host 半在沙箱里真实执行, 验证 harness.handle('glossary/resolve')。
- * 用例 10/11: 客户端 bundle 的函数体、词库与 Host 侧逐光标一致。
- * 用例 12: 用假 DOM 跑通 "鼠标经过 -> 取字 -> 分类 -> 查词 -> 渲染浮层" 整条路径。
+ * Тест 8: тела функций динамического плагина — корректный обычный JS (без ESM).
+ * Тест 9: host-половина динамической версии реально исполняется в песочнице
+ *         и проверяет harness.handle('glossary/resolve').
+ * Тесты 10/11: тело клиентского bundle, словарь и host-половина совпадают
+ *         по каждому курсору.
+ * Тест 12: на fake DOM проходит весь путь «наведение -> символ -> классификация
+ *          -> поиск -> всплывающая подсказка».
  *
- * 运行: node test/run.mjs
+ * Запуск: node test/run.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,13 +22,13 @@ import { SEED_TABLE } from '../src/seed-data.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 可持久安装的客户端 bundle (浏览器模块), 用例 10-12 的测试对象 */
+/** Устанавливаемый клиентский bundle (браузерный модуль) — объект тестов 10-12 */
 function browserModuleSource() {
   return readFileSync(resolve(root, 'lib/client.js'), 'utf8');
 }
 const define = JSON.parse(readFileSync(resolve(root, 'plugin/cordis-define.json'), 'utf8'));
 
-/** 在沙箱里跑起 Host 半, 返回 { call, logs } */
+/** Запускает host-половину в песочнице и возвращает { call, logs } */
 function bootHost() {
   const handlers = new Map();
   const logs = [];
@@ -46,7 +49,7 @@ function bootHost() {
   return {
     call: (method, args) => {
       const handler = handlers.get(method);
-      assert.ok(handler, `未注册的 RPC: ${method}`);
+      assert.ok(handler, `RPC не зарегистрирован: ${method}`);
       return handler(args);
     },
     logs,
@@ -54,12 +57,12 @@ function bootHost() {
 }
 
 const host = bootHost();
-const SAMPLE = 'United Nations 里 WHO 和 世界卫生组织 都收录了';
+const SAMPLE = 'В United Nations есть WHO и ВОЗ, это всё в словаре';
 const cursorOf = (needle, offset = 0) => SAMPLE.indexOf(needle) + offset;
-/** 沙箱返回的对象来自另一个 realm, 原型不同, 因此统一按 JSON 比较 */
+/** Объекты из песочницы принадлежат другому realm, поэтому сравниваем через JSON */
 const j = (value) => JSON.stringify(value);
 
-/** 最小 React 桩: 只覆盖客户端用到的三个 API */
+/** Минимальная заглушка React: только три используемых API */
 const reactStub = {
   createElement: () => ({}),
   useState: (initial) => [initial, () => {}],
@@ -67,10 +70,11 @@ const reactStub = {
 };
 
 /**
- * 以浏览器模块语义求值客户端 bundle, 取回 factory 与插件对象。
- * 源码是 `window.__ModuleLoader__.load({ id, factory })` 包装 (与本地插件包契约一致),
- * 不再是可直接调用的函数体。
- * @param {string} source - plugin/package/lib/client.js 的内容
+ * Выполняет client bundle с семантикой браузерного модуля и забирает
+ * factory вместе с объектом плагина.
+ * Исходник обёрнут в `window.__ModuleLoader__.load({ id, factory })` —
+ * это контракт локального пакета плагина.
+ * @param {string} source - содержимое plugin/package/lib/client.js
  */
 function loadClientModule(source) {
   let captured = null;
@@ -80,17 +84,19 @@ function loadClientModule(source) {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox, { filename: 'client-module.js' });
-  assert.ok(captured, 'client bundle 未注册到 __ModuleLoader__');
+  assert.ok(captured, 'client bundle не зарегистрировался в __ModuleLoader__');
   const plugin = captured.factory((name) => {
     if (name === 'react') return reactStub;
-    throw new Error('不允许的 require: ' + name);
+    throw new Error('недопустимый require: ' + name);
   });
   return { definition: captured, plugin, sandbox };
 }
 
 /**
- * 取回客户端内部的 INDEX 与光标取词函数, 用于校验客户端识别结果。
- * 做法: 在模块上下文里定义一个探针全局, 让 factory 闭包把内部索引挂上去。
+ * Достаёт внутренние INDEX и функцию определения слова под курсором из
+ * клиентского контекста.
+ * Приём: в контексте модуля объявляем глобальный зонд, и замыкание factory
+ * выкладывает в него внутренний индекс.
  * @param {string} source
  */
 function makeClientSandbox(source) {
@@ -104,59 +110,60 @@ function makeClientSandbox(source) {
   `;
   const marker = '\n    function apply(ctx) {';
   const at = source.indexOf(marker);
-  assert.ok(at > 0, 'client 源码应包含 apply 定义');
+  assert.ok(at > 0, 'в исходнике клиента должна быть функция apply');
   const patched = source.slice(0, at) + '\n' + probe + source.slice(at);
   return loadClientModule(patched).sandbox;
 }
 
-test('用例8: 两个函数体都是合法源码且不含 ESM 语法', () => {
+test('тест8: оба тела функций — корректный исходник без ESM-синтаксиса', () => {
   for (const half of ['host', 'client']) {
     const source = define.code[half];
-    assert.ok(source.length > 1000, `${half} 源码过短`);
-    assert.ok(!/^\s*import\s/m.test(source), `${half} 不应有 import`);
-    assert.ok(!/^\s*export\s/m.test(source), `${half} 不应有 export`);
-    assert.doesNotThrow(() => new Function(source), `${half} 语法检查失败`);
+    assert.ok(source.length > 1000, `${half}: исходник слишком короткий`);
+    assert.ok(!/^\s*import\s/m.test(source), `${half}: не должно быть import`);
+    assert.ok(!/^\s*export\s/m.test(source), `${half}: не должно быть export`);
+    assert.doesNotThrow(() => new Function(source), `${half}: проверка синтаксиса не прошла`);
   }
-  // 动态版本的 host 半边运行在 Node 闭包里, 不能有 require;
-  // client 半边是浏览器模块, 只允许 require 平台原语 (react)
-  assert.ok(!/\brequire\s*\(/.test(define.code.host), 'host 半边不应有 require');
+  // Host-половина динамической версии работает в замыкании Node, require ей
+  // запрещён; клиентская половина — браузерный модуль и может требовать только
+  // примитивы платформы (react)
+  assert.ok(!/\brequire\s*\(/.test(define.code.host), 'в host-половине не должно быть require');
   const requires = [...define.code.client.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(requires)], ['react'], `client 只应 require react, 实际: ${requires.join(', ')}`);
-  assert.equal(define.name, 'Hover Glossary');
+  assert.deepEqual([...new Set(requires)], ['react'], `client должен требовать только react, а требует: ${requires.join(', ')}`);
+  assert.equal(define.name, 'Толковый словарь при наведении');
 });
 
-test('用例9: Host RPC 按光标返回 1..N 条联想', () => {
-  // 1) 需求给定的示例: WHO -> 1、世卫组织 2、谁
+test('тест9: Host RPC по курсору возвращает 1..N толкований', () => {
+  // 1) Пример из задачи: WHO -> 1) ВОЗ 2) кто
   const who = host.call('glossary/resolve', { text: SAMPLE, cursor: cursorOf('WHO', 1) });
   assert.equal(who.ok, true);
   assert.equal(who.key, 'who');
-  assert.equal(j(who.entries.map((e) => e.text)), j(['世卫组织', '谁']));
+  assert.equal(j(who.entries.map((e) => e.text)), j(['ВОЗ', 'кто']));
   assert.equal(j(who.entries.map((e) => e.index)), j([1, 2]));
-  // 返回的必须是纯 JSON 可序列化的最小对象
+  // Возвращаемый объект должен быть минимальным и сериализуемым в JSON
   assert.deepEqual(Object.keys(who.entries[0]).sort(), ['index', 'kind', 'text', 'weight']);
   assert.doesNotThrow(() => JSON.stringify(who));
 
-  // 2) 最长词优先: 光标在 "世界卫生组织" 的最后一个字上
-  const long = host.call('glossary/resolve', { text: SAMPLE, cursor: cursorOf('世界卫生组织', 6) });
-  assert.equal(long.term, '世界卫生组织');
-  assert.equal(long.entries[0].text, '世界卫生组织（WHO），简称世卫组织');
+  // 2) Длинное словосочетание: курсор в первом слове
+  const long = host.call('glossary/resolve', { text: SAMPLE, cursor: cursorOf('United Nations', 3) });
+  assert.equal(long.term, 'United Nations');
+  assert.equal(long.entries[0].text, 'Организация Объединённых Наций (ООН)');
 
-  // 3) 跨空格短语: 光标在第一个词上时整体命中 (短语可向右跨过内部空格)
+  // 3) Фраза через пробел: курсор в любом месте первого слова находит всю фразу
   for (const offset of [0, 3, 6]) {
     const un = host.call('glossary/resolve', { text: SAMPLE, cursor: cursorOf('United Nations', offset) });
-    assert.equal(un.term, 'United Nations', `offset ${offset} 应命中整个短语`);
+    assert.equal(un.term, 'United Nations', `offset ${offset} должен находить всю фразу`);
     assert.equal(un.entries.length, 2);
   }
-  // 停在第二个词上时按该词自身查询, 不回头扩张
+  // Курсор на втором слове ищет только это слово, без растягивания влево
   assert.equal(host.call('glossary/resolve', { text: SAMPLE, cursor: cursorOf('United Nations', 9) }).entries.length, 0);
 
-  // 4) Client 直接按词查询 (悬停分支)
+  // 4) Клиент запрашивает прямо по слову (ветка наведения на слово словаря)
   const pinned = host.call('glossary/resolve', { text: SAMPLE, cursor: 0, term: 'api' });
   assert.equal(pinned.key, 'api');
   assert.equal(pinned.entries.length, 3);
 
-  // 5) 未收录 / 空白: 返回 ok 且空数组, 不抛错
-  const none = host.call('glossary/resolve', { text: '没有收录的词', cursor: 0 });
+  // 5) Не найдено / пустой ввод: ok и пустой массив, без исключения
+  const none = host.call('glossary/resolve', { text: 'такого слова нет', cursor: 0 });
   assert.equal(none.ok, true);
   assert.equal(j(none.entries), '[]');
   assert.equal(none.empty, true);
@@ -164,52 +171,52 @@ test('用例9: Host RPC 按光标返回 1..N 条联想', () => {
   assert.equal(blank.ok, true);
   assert.equal(j(blank.entries), '[]');
 
-  // 6) 词条可追加, 1 -> N 的 N 会增长
-  const added = host.call('glossary/define', { term: 'DSH-Test', entries: ['自定义解释一', '自定义解释二'] });
+  // 6) Толкования можно дополнять: N в 1 -> N растёт
+  const added = host.call('glossary/define', { term: 'DSH-Test', entries: ['своё объяснение раз', 'своё объяснение два'] });
   assert.equal(added.ok, true);
   assert.equal(added.total, 2);
   const after = host.call('glossary/resolve', { term: 'dsh-test', cursor: 0, text: '' });
-  assert.equal(j(after.entries.map((e) => e.text)), j(['自定义解释一', '自定义解释二']));
-  // 参数不合法时明确报错, 不静默吞掉
+  assert.equal(j(after.entries.map((e) => e.text)), j(['своё объяснение раз', 'своё объяснение два']));
+  // Неверные аргументы дают явную ошибку, а не тихий пропуск
   assert.equal(host.call('glossary/define', { term: '', entries: [] }).ok, false);
 
-  assert.ok(host.logs.some((line) => line.includes('词库就绪')), 'Host 启动时应打印词库规模');
+  assert.ok(host.logs.some((line) => line.includes('словарь готов')), 'host при старте должен сообщать размер словаря');
 });
 
-test('用例10: 客户端源码只装饰真实正文, 不含演示面板/模拟控件', () => {
+test('тест10: клиентский исходник украшает только реальный текст, без демонстрационных панелей', () => {
   const source = define.code.client;
 
-  // 面板必须把 SEED_TABLE / SAMPLE_TEXT 内联进来, 才能独立运行
-  assert.ok(/const SEED_TABLE\s*=/.test(source), 'Client 应内联 SEED_TABLE');
+  // Панель должна содержать встроенные SEED_TABLE / текст, чтобы работать автономно
+  assert.ok(/const SEED_TABLE\s*=/.test(source), 'клиент должен встраивать SEED_TABLE');
   for (const term of Object.keys(SEED_TABLE)) {
-    assert.ok(source.includes(term), `Client 内联词库缺少 "${term}"`);
+    assert.ok(source.includes(term), `во встроенном словаре клиента нет «${term}»`);
   }
 
-  // 不再有演示面板: 必须没有 CELLS/演示段落相关的东西
-  assert.ok(!/const CELLS\s*=/.test(source), '旧的演示面板切分逻辑应已移除');
-  assert.ok(!/hg-panel/.test(source), '不应再注册演示面板');
-  assert.ok(!/simulate|模拟光标/.test(source), '不应再有模拟光标控件');
+  // Демонстрационной панели быть не должно
+  assert.ok(!/const CELLS\s*=/.test(source), 'старая логика демонстрационной панели должна быть удалена');
+  assert.ok(!/hg-panel/.test(source), 'демонстрационная панель не должна регистрироваться');
+  assert.ok(!/simulate|симуляц/i.test(source), 'не должно быть симуляции курсора');
 
-  // 悬停引擎的必要组成: 取字 + 浮层 + 自检; 且不依赖任何锚点元素
-  assert.ok(/caretRangeFromPoint|caretPositionFromPoint/.test(source), '缺少光标处字符定位');
-  assert.ok(/shell\.overlay/.test(source), '浮层应注册在 shell.overlay');
-  assert.ok(/function selfCheck/.test(source), '应带启动自检');
-  assert.ok(source.includes('__hoverGlossaryDiag__'), '自检结果应可从控制台读取');
-  assert.ok(!source.includes('data-hg-zone'), '不应再依赖锚点元素判定范围');
-  assert.ok(!source.includes('conversation.chat.turnTail'), '不应再与 turnTail chain 竞争');
-  assert.ok(/addEventListener\('mousemove'/.test(source), '应监听鼠标移动');
-  assert.ok(!/\bdocument\.body\s*\.\s*(append|innerHTML|style)/.test(source), '不应改写 product DOM');
+  // Обязательные части движка: символ под курсором + подсказка + самопроверка
+  assert.ok(/caretRangeFromPoint|caretPositionFromPoint/.test(source), 'нет определения символа под курсором');
+  assert.ok(/shell\.overlay/.test(source), 'подсказка должна регистрироваться в shell.overlay');
+  assert.ok(/function selfCheck/.test(source), 'должна быть самопроверка при запуске');
+  assert.ok(source.includes('__hoverGlossaryDiag__'), 'результат самопроверки должен быть доступен из консоли');
+  assert.ok(!source.includes('data-hg-zone'), 'нельзя опираться на якорные элементы для определения области');
+  assert.ok(!source.includes('conversation.chat.turnTail'), 'нельзя конкурировать с цепочкой turnTail');
+  assert.ok(/addEventListener\('mousemove'/.test(source), 'должен быть подписан на движение мыши');
+  assert.ok(!/\bdocument\.body\s*\.\s*(append|innerHTML|style)/.test(source), 'нельзя менять DOM продукта');
 
-  // 客户端内联的词库必须与 Host 一致: 同一段真实正文, 逐光标结果相同
+  // Встроенный в клиент словарь должен совпадать с host-половиной: на одном и
+  // том же тексте результат по каждому курсору одинаков
   const sandbox = makeClientSandbox(source);
   const clientTermAt = (text, cursor) => sandbox.__termAt__(text, cursor);
   const clientEntries = (term) => sandbox.__index__.lookup(term);
   assert.equal(sandbox.__index__.size, Object.keys(SEED_TABLE).length);
 
-  // 用 "真实正文" 复刻需求场景: 用户输入的句子 + 我输出的句子
   const realText = [
-    '帮我查一下 WHO 的说法',
-    'WHO 是世卫组织, 全称 World Health Organization, 也叫 世界卫生组织。',
+    'подскажи, что значит WHO',
+    'WHO — это ВОЗ, полное название World Health Organization, она же Всемирная организация здравоохранения.',
   ];
   const seen = new Set();
   for (const text of realText) {
@@ -219,29 +226,29 @@ test('用例10: 客户端源码只装饰真实正文, 不含演示面板/模拟�
       const entries = clientEntries(term);
       if (entries.length === 0) continue;
       seen.add(term.toLowerCase());
-      // 同一光标在 Host 侧必须给出完全相同的条目
+      // Тот же курсор на стороне Host должен давать ровно те же толкования
       const hostResult = host.call('glossary/resolve', { text, cursor, term });
       assert.equal(
         j(hostResult.entries.map((e) => e.text)),
         j(entries.map((e) => e.text)),
-        `光标 ${cursor} (${term}) 处 Host/Client 不一致`,
+        `на позиции ${cursor} (${term}) host и клиент расходятся`,
       );
     }
   }
-  assert.ok(seen.has('who'), '真实正文里的 WHO 应能被客户端识别');
-  assert.ok(seen.has('世界卫生组织'), '真实正文里的多字词应能被识别');
-  // 未收录的词不产生浮层
-  assert.equal(clientEntries('这句话里没有收录的词').length, 0);
+  assert.ok(seen.has('who'), 'WHO из реального текста должно распознаваться клиентом');
+  assert.ok(seen.has('воз'), 'сокращение ВОЗ из реального текста должно распознаваться');
+  // Не входящие в словарь слова не дают подсказки
+  assert.equal(clientEntries('фраза без словарных слов').length, 0);
 });
 
-test('用例11: 真实对话文本下 Host 与 Client 逐光标一致', () => {
+test('тест11: на реальном тексте диалога host и клиент совпадают по каждому курсору', () => {
   const sandbox = makeClientSandbox(define.code.client);
 
-  // 模拟一段你和我的真实对话文本 (包含中英混排、多字词与跨空格短语)
+  // Смешанный русско-английский текст диалога
   const transcript = [
-    '我输入: 请解释 WHO 和 United Nations 的关系',
-    '我输出: WHO 即 世卫组织, 隶属 United Nations; DSH 里 Cordis 插件负责扩展。',
-    '再输入: 那 API 呢? 以及 世界卫生组织 的官网, 顺便说说 LLM 和 DeepSeek',
+    'Я спросил: объясни WHO и United Nations в двух словах',
+    'Ответ: WHO — это ВОЗ; в DSH плагины расширяет Cordis, а API и LLM — разные вещи.',
+    'Ещё: токен и токенизатор — не одно и то же, а скрытое состояние — не ответ модели.',
   ].join('\n');
 
   let hits = 0;
@@ -252,25 +259,28 @@ test('用例11: 真实对话文本下 Host 与 Client 逐光标一致', () => {
     if (entries.length === 0) continue;
     hits += 1;
     const hostResult = host.call('glossary/resolve', { text: transcript, cursor, term });
-    assert.ok(hostResult.entries.length >= 1, `光标 ${cursor} 处 Host 未命中`);
+    assert.ok(hostResult.entries.length >= 1, `на позиции ${cursor} host ничего не нашёл`);
     assert.equal(
       j(hostResult.entries.map((e) => e.text)),
       j(entries.map((e) => e.text)),
-      `光标 ${cursor} (${term}) 处 Host/Client 条目不一致`,
+      `на позиции ${cursor} (${term}) host и клиент расходятся`,
     );
   }
-  assert.ok(hits >= 10, `真实对话文本中命中太少 (${hits})`);
-  // 未被收录的词不产生任何浮层
-  assert.equal(sandbox.__index__.lookup('这句话里没有收录的词').length, 0);
+  assert.ok(hits >= 10, `в реальном тексте слишком мало попаданий (${hits})`);
+  // Слова вне словаря не дают подсказки
+  assert.equal(sandbox.__index__.lookup('фраза без словарных слов').length, 0);
 });
 
 /**
- * 在沙箱里以浏览器模块语义加载客户端 bundle, 并 apply 起来, 用假 DOM 模拟一次鼠标移动。
- * 这是唯一覆盖 "鼠标经过 -> 取字 -> 分类 -> 查词 -> 渲染浮层" 整条路径的测试;
- * 之前 "悬停没反应" 的缺陷正是出现在这段路径上。
+ * Загружает client bundle с семантикой браузерного модуля, применяет плагин и
+ * имитирует одно движение мыши на fake DOM.
+ * Это единственный тест, покрывающий весь путь «мышь -> символ -> классификация
+ * -> поиск -> отрисовка подсказки»; именно здесь раньше ломалось «наведение не
+ * реагирует».
  *
- * 持久版本是纯客户端的: 查词在浏览器侧完成, 没有 RPC, 因此这里断言的是
- * 浮层实际的渲染结果 (文本 + 条目), 而不是 "有没有发起查询"。
+ * Постоянная версия полностью клиентская: поиск идёт в браузере, RPC нет,
+ * поэтому проверяется реальный результат отрисовки (текст и толкования),
+ * а не «был ли запрос».
  */
 function runHoverOnce(options) {
   const listeners = { mousemove: [], mouseleave: [], scroll: [], blur: [] };
@@ -304,27 +314,30 @@ function runHoverOnce(options) {
       return () => {};
     },
     register: (definition, render) => {
-      // 注册对象形如 { name, render } —— 渲染函数在 .render 上
-      assert.equal(typeof render, 'function', 'slots.register 应收到渲染函数: ' + JSON.stringify(definition));
+      // Объект регистрации имеет вид { name, render } — рендер лежит в .render
+      assert.equal(typeof render, 'function', 'slots.register должен получить функцию рендера: ' + JSON.stringify(definition));
       registered.push(render);
       return () => {};
     },
   };
 
-  // 真实的 React 桩: useState 触发重渲染, useEffect 尊重依赖数组,
-  // 渲染期间不重入 (否则 setState -> flush -> render 会无限递归)。
-  // hook 单元按 "组件身份 + hook 序号" 索引 —— 不能用嵌套深度, 否则两个顶层
-  // 组件 (GlossaryTip / DiagCard) 会共用同一格状态。
+  // Заглушка React, близкая к настоящему: useState вызывает перерисовку,
+  // useEffect учитывает массив зависимостей, рендер не переиспользует сам себя
+  // (иначе setState -> flush -> render зацикливается).
+  // Ячейка хука адресуется парой «идентификатор компонента + номер хука»:
+  // ориентироваться на глубину вложенности нельзя, иначе два верхних
+  // компонента (GlossaryTip и DiagCard) делили бы одну ячейку.
   const hookState = new Map();
   const effectCells = new Map();
-  let currentComponent = -1; // 当前渲染的组件 id, -1 表示尚未进入组件
+  let currentComponent = -1; // текущий компонент, -1 — вне компонента
   let hookCursor = 0;
   let renderDepth = 0;
   let nextComponentId = 1;
   const renderers = [];
   const pendingCleanups = [];
   const React = {
-    // React 会调用函数组件来渲染, 桩也必须这样, 否则看不到组件内部的元素
+    // React вызывает функциональные компоненты при отрисовке, заглушка обязана
+    // делать то же, иначе внутренние элементы компонента не видны
     createElement: (type, props, ...children) => {
       if (typeof type === 'function') {
         const id = type.__hgId || (type.__hgId = nextComponentId++);
@@ -365,12 +378,14 @@ function runHoverOnce(options) {
         deps.length === previous.deps.length &&
         deps.every((value, index) => Object.is(value, previous.deps[index]));
       if (sameDeps) return;
-      // 渲染期间只登记, 副作用由 flush 的提交阶段统一执行
+      // Во время рендера только регистрируем; побочные эффекты выполняет
+      // фаза коммита в flush
       effectCells.set(key, { deps: deps ? deps.slice() : null, effect });
     },
   };
 
-  // 每个组件有独立的 hook 作用域, 因此 hook 游标在 "每个组件渲染前" 复位
+  // У каждого компонента своя область хуков, поэтому курсор сбрасывается
+  // перед отрисовкой каждого компонента
   function flush() {
     if (renderDepth > 0) return;
     renderDepth += 1;
@@ -383,7 +398,7 @@ function runHoverOnce(options) {
           render();
         }
       }
-      // 提交阶段: 执行本轮变更过的副作用 (与 React 一致)
+      // Фаза коммита: выполняем эффекты, изменившиеся в этом проходе (как React)
       for (const cell of effectCells.values()) {
         if (cell.ran === cell.deps) continue;
         cell.ran = cell.deps;
@@ -414,16 +429,17 @@ function runHoverOnce(options) {
   vm.createContext(sandbox);
   vm.runInContext(browserModuleSource(), sandbox, { filename: 'client-run.js' });
 
-  assert.ok(captured, 'client bundle 未注册到 __ModuleLoader__');
+  assert.ok(captured, 'client bundle не зарегистрировался в __ModuleLoader__');
   const plugin = captured.factory((name) => {
     if (name === 'react') return React;
-    throw new Error('不允许的 require: ' + name);
+    throw new Error('недопустимый require: ' + name);
   });
   if (options.inject) plugin.inject = options.inject;
 
-  // register 期只登记渲染函数, 不执行; apply 之后统一首渲。
-  // ctx 只提供 ctx.slots (与真实运行时一致), 刻意不提供 ctx.get('slots') ——
-  // 这样 "依赖没声明导致静默失效" 这类问题会在测试里直接暴露。
+  // Регистрация только складывает функции рендера, применяются они после
+  // apply. В ctx доступен только ctx.slots (как в реальном рантайме), а
+  // ctx.get('slots') намеренно не даётся: так «тихое» отсутствие зависимости
+  // сразу видно в тесте.
   plugin.apply({
     get slots() {
       assert.ok(plugin.inject.includes('slots'), 'cannot get property "slots" without inject');
@@ -438,8 +454,9 @@ function runHoverOnce(options) {
   for (const render of registered) renderers.push(render);
   flush();
 
-  assert.ok(listeners.mousemove.length >= 1, '应注册 mousemove 监听');
-  // 节流是 50ms, 这里只触发一次; 状态变化会经 setter 自动重渲染
+  assert.ok(listeners.mousemove.length >= 1, 'должен быть зарегистрирован слушатель mousemove');
+  // Троттлинг 50 мс, поэтому движение мыши вызывается один раз; изменение
+  // состояния вызывает перерисовку через setter
   for (const fn of listeners.mousemove) fn({ clientX: 100, clientY: 100 });
 
   return {
@@ -452,7 +469,7 @@ function runHoverOnce(options) {
   };
 }
 
-/** 收集 React 元素树里的文本 */
+/** Собирает текст из дерева элементов React */
 function collectText(node, out) {
   if (node === null || node === undefined) return out;
   if (typeof node === 'string' || typeof node === 'number') {
@@ -467,94 +484,100 @@ function collectText(node, out) {
   return out;
 }
 
-/** 某个 className 是否精确包含给定类名 (避免 hg-diag-head 被当成 hg-diag) */
+/** Точное вхождение класса className в props (чтобы hg-diag-head не считался hg-diag) */
 function hasClass(element, name) {
   if (!element || !element.props || typeof element.props.className !== 'string') return false;
   return element.props.className.split(/\s+/).includes(name);
 }
 
-/** 浮层 (hg-tip) 里当前渲染出来的文本 */
+/** Текст, отрисованный сейчас в подсказке (hg-tip) */
 function tipText(run) {
   const tip = run.elements.filter((element) => hasClass(element, 'hg-tip')).pop();
   if (!tip) return null;
   return collectText(tip, []).join(' ');
 }
 
-/** 诊断卡片 (hg-diag) 里当前渲染出来的文本 */
+/** Текст диагностической карточки (hg-diag) */
 function diagText(run) {
   const card = run.elements.filter((element) => hasClass(element, 'hg-diag')).pop();
   if (!card) return null;
   return collectText(card, []).join(' ');
 }
 
-test('用例12: 鼠标经过正文里的词会渲染出联想浮层 (整条悬停路径)', () => {
-  // 索引: u0 s1 e2 ␣3 W4 H5 O6 ␣7 h8 e9 r10 e11
+test('тест12: наведение на слово в тексте рисует всплывающую подсказку (весь путь)', () => {
+  // Позиции: u0 s1 e2 ␣3 W4 H5 O6 ␣7 h8 e9 r10 e11
   const node = { nodeType: 3, data: 'use WHO here' };
 
-  // caret 落在所见字符右侧 (offset 7 = "WHO" 之后的空格): 必须向左回退一格取到 O
+  // Каретка попадает справа от видимого символа (offset 7 — пробел после WHO):
+  // нужно сдвинуться на одну позицию влево, к O
   const rightSide = runHoverOnce({ element: { tagName: 'SPAN' }, node, offset: 7 });
   const tip1 = tipText(rightSide);
-  assert.ok(tip1, '悬停在 WHO 上应渲染浮层');
-  assert.ok(tip1.includes('WHO'), `浮层应显示词本身, 实际: ${tip1}`);
-  assert.ok(tip1.includes('世卫组织'), `浮层应显示 WHO 的条目, 实际: ${tip1}`);
-  assert.ok(tip1.includes('谁'), `浮层应显示全部 1..N 条, 实际: ${tip1}`);
+  assert.ok(tip1, 'наведение на WHO должно рисовать подсказку');
+  assert.ok(tip1.includes('WHO'), `подсказка должна показывать само слово, а показывает: ${tip1}`);
+  assert.ok(tip1.includes('ВОЗ'), `подсказка должна показывать толкование WHO, а показывает: ${tip1}`);
+  assert.ok(tip1.includes('кто'), `подсказка должна показывать все 1..N толкований, а показывает: ${tip1}`);
 
-  // offset 正落在 "WHO" 中间 (caret 在 H 与 O 之间)
+  // offset ровно между H и O
   const onChar = runHoverOnce({ element: { tagName: 'SPAN' }, node, offset: 6 });
-  assert.ok((tipText(onChar) || '').includes('世卫组织'), 'offset 落在词内同样应命中');
+  assert.ok((tipText(onChar) || '').includes('ВОЗ'), 'offset внутри слова тоже должен находить слово');
 
-  // offset 落在 "WHO" 的首字母 W 上
+  // offset на первой букве W
   const onFirst = runHoverOnce({ element: { tagName: 'SPAN' }, node, offset: 4 });
-  assert.ok((tipText(onFirst) || '').includes('世卫组织'), 'offset 落在首字母上应命中');
+  assert.ok((tipText(onFirst) || '').includes('ВОЗ'), 'offset на первой букве должен находить слово');
 
-  // 未收录的词: 不渲染浮层
+  // Слово вне словаря: подсказки нет
   const none = runHoverOnce({ element: { tagName: 'SPAN' }, node, offset: 9 });
-  assert.equal(tipText(none), null, '未收录的词不应渲染浮层');
+  assert.equal(tipText(none), null, 'слово вне словаря не должно давать подсказку');
 
-  // 落在控件内: 不渲染浮层
+  // Курсор внутри элемента управления: подсказки нет
   const insideButton = runHoverOnce({
     element: { tagName: 'BUTTON', parentElement: null },
     node,
     offset: 6,
   });
-  assert.equal(tipText(insideButton), null, '控件内不应渲染浮层');
+  assert.equal(tipText(insideButton), null, 'внутри элементов управления подсказки быть не должно');
 
-  // 取字返回 null: 不应抛错
+  // Получение символа вернуло null: исключения быть не должно
   const blank = runHoverOnce({ element: null, node, offset: 6 });
   assert.equal(tipText(blank), null);
-  assert.ok(!blank.logs.some((line) => line.startsWith('ERR')), `不应抛错: ${blank.logs.join(' | ')}`);
+  assert.ok(!blank.logs.some((line) => line.startsWith('ERR')), `исключений быть не должно: ${blank.logs.join(' | ')}`);
 
-  assert.equal(diagText(rightSide), null, '用户要求没有额外诊断 GUI');
+  assert.equal(diagText(rightSide), null, 'лишнего диагностического интерфейса быть не должно');
   for (const run of [rightSide,onChar,onFirst,none,insideButton,blank]) run.cleanup();
 });
 
-test('用例14: 服务依赖缺失时确实拒绝激活, 无 styles 全局也能运行', () => {
+test('тест14: без объявленной зависимости сервис недоступен, а глобального styles нет', () => {
   assert.throws(() => runHoverOnce({element: {tagName:'SPAN'}, node:{nodeType:3,data:'WHO'},offset:1,inject:[]}), /without inject/);
   const run=runHoverOnce({element:{tagName:'SPAN'},node:{nodeType:3,data:'WHO'},offset:1});
-  assert.ok(tipText(run).includes('世卫组织'));
-  assert.ok(run.elements.some(e=>e.type==='style'), '样式由 React 管理');
+  assert.ok(tipText(run).includes('ВОЗ'));
+  assert.ok(run.elements.some(e=>e.type==='style'), 'стили должны управляться через React');
   run.cleanup();
-  assert.ok(Object.values(run.listeners).every(v=>v.length===0), '卸载移除所有监听器');
+  assert.ok(Object.values(run.listeners).every(v=>v.length===0), 'при выгрузке снимаются все слушатели');
 });
 
-test('用例15: 五个词、中文连续正文和短语走真实 mousemove 查询路径', () => {
+test('тест15: пять слов, кириллица и словосочетания проходят реальный путь mousemove', () => {
   for(const [text, offset, expected] of [
-    ['WHO',1,'世卫组织'],['API',1,'应用程序编程接口'],['DSH',1,'数字签名硬件'],
-    ['Cordis',2,'插件运行时'],['LLM',1,'大语言模型'],
-    ['即世界卫生组织发布报告',3,'简称世卫组织'],['United Nations',3,'联合国']
+    ['WHO',1,'ВОЗ'],['API',1,'интерфейс прикладного программирования'],['DSH',1,'DeepSeek Harness'],
+    ['Cordis',2,'среда выполнения плагинов'],['LLM',1,'языковая модель'],
+    ['Всемирная организация здравоохранения',4,'сокращённо ВОЗ'],['United Nations',3,'Организация Объединённых Наций'],
+    ['токенизатор',2,'tokenizer']
   ]) {
     const run=runHoverOnce({element:{tagName:'SPAN'},node:{nodeType:3,data:text},offset});
-    assert.ok((tipText(run)||'').includes(expected),text+' 应命中 '+expected);
+    assert.ok((tipText(run)||'').includes(expected),text+' должен находить '+expected);
     run.cleanup();
   }
 });
 
-test('用例16: 侧栏、行尾空白不触发, 滚动关闭浮层', () => {
+test('тест16: боковая панель и пустое место не срабатывают, прокрутка закрывает подсказку', () => {
   for(const extra of [{outside:true},{blank:true}]) {
     const run=runHoverOnce({element:{tagName:'SPAN'},node:{nodeType:3,data:'WHO'},offset:1,...extra});
     assert.equal(tipText(run),null);
     run.cleanup();
   }
+  // Кириллическая граница слова: «токен» не должен срабатывать внутри «псевдотокен»
+  const suffix = runHoverOnce({element:{tagName:'SPAN'},node:{nodeType:3,data:'псевдотокен'},offset:7});
+  assert.equal(tipText(suffix),null,'слово внутри более длинного не должно давать подсказку');
+  suffix.cleanup();
   const run=runHoverOnce({element:{tagName:'SPAN'},node:{nodeType:3,data:'WHO'},offset:1});
   assert.ok(tipText(run));
   run.listeners.scroll.forEach(fn=>fn());

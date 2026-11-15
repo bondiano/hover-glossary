@@ -1,70 +1,45 @@
 ---
 name: glossary-mapping
-description: Update, rebuild, install, and verify the persistent hover-glossary term-to-many-meanings mapping for DeepSeek Harness. Use when adding or correcting entries or checking whether an update survives a Harness restart.
+description: Обновление, пересборка, установка и проверка постоянного словаря hover-glossary (термин → несколько толкований) для DeepSeek Harness. Используйте при добавлении или исправлении записей и при проверке, переживает ли обновление перезапуск Harness.
 ---
 
-# Maintain the hover glossary
+# Сопровождение словаря hover-glossary
 
-The repository root is the installable package. The sole persistent mapping source is
-`src/seed-data.mjs`. Do not add a glossary GUI or model-facing tools.
+Корень репозитория — устанавливаемый пакет. Единственный постоянный источник словаря — `src/seed-data.mjs`. Не добавляйте GUI словаря или инструменты для модели.
 
-## Durable update
+## Постоянное обновление
 
-1. Edit the source mapping, preserving unrelated entries.
-2. From the repository root run `node scripts/build-client.mjs`.
-3. Run `node test/run.mjs` (16 tests). Tests do not regenerate files;
-   a stale artifact should fail verification.
-4. Install or update with `dsh plugin --profile web add github:AlyceStocking/hover-glossary`.
-5. Reload the browser and hover a changed word in a sent user or assistant message.
-   Restart Harness when the manifest or composition changed, and whenever verifying
-   persistence. Open the authenticated URL printed at startup.
-6. Review the diff before committing. Publish only when requested.
+1. Отредактируйте исходный словарь, не затрагивая посторонние записи.
+2. Из корня репозитория выполните `node scripts/build-client.mjs`.
+3. Запустите `node test/run.mjs` (16 тестов). Тесты не пересоздают файлы; устаревший артефакт должен ронять проверку.
+4. Установите или обновите плагин командой для нужного профиля: `dsh plugin --profile web add github:bondiano/hover-glossary` (для настольного профиля замените `web` на `desktop`).
+5. Перезагрузите браузер и наведите курсор на изменённое слово в отправленном сообщении пользователя или ассистента. Перезапускайте Harness при изменении манифеста или состава, а также при каждой проверке, что установка переживает перезапуск. Открывайте аутентифицированный URL, напечатанный при запуске.
+6. Просмотрите diff перед коммитом. Публикуйте только по запросу.
 
-Do not install by copying files into `~/.dsh/profiles/node_modules/` and editing
-`cordis.patch.yml` by hand: the plugin runs, but because it is not a pnpm dependency
-of the profile, the plugin management UI never lists it. The bundle's own
-`cordis.patch.yml` mounts the entry automatically once the package is installed as a
-profile dependency.
+> Не устанавливайте плагин копированием файлов в `~/.dsh/profiles/node_modules/` и ручной правкой `cordis.patch.yml`: плагин запустится, но, поскольку он не является pnpm-зависимостью профиля, интерфейс управления плагинами его не покажет. Собственный `cordis.patch.yml` пакета монтирует запись автоматически, как только пакет установлен как зависимость профиля.
 
-The package has an empty Host `apply` and a browser module containing the lexicon.
-It uses no RPC or model request. Dynamic `cordis_define` / `cordis_run` state and the
-legacy `glossary/define` RPC are not persistent installation or mapping APIs.
+У пакета пустой `apply` на стороне Host и браузерный модуль со словарём. Он не использует RPC и запросы к модели. Динамическое состояние `cordis_define` / `cordis_run` и устаревший RPC `glossary/define` не являются API для постоянной установки или работы со словарём.
 
-## Entry format
+## Формат записи
 
 ```js
 TERM: [
-  { text: '第一解释', kind: '缩写', weight: 100, tags: ['分类'] },
-  { text: '第二解释', kind: '代词', weight: 10 },
+  { text: 'первое толкование', kind: 'аббревиатура', weight: 100, tags: ['категория'] },
+  { text: 'второе толкование', kind: 'местоимение', weight: 10 },
 ],
 ```
 
-`text` is required. `kind` defaults to `释义`; `weight` defaults to zero and sorts
-descending, with ties preserving input order. `tags` are optional metadata.
-The runtime assigns `index`; do not write it manually.
+`text` обязателен. `kind` по умолчанию — `толкование`; `weight` по умолчанию ноль и сортирует по убыванию, при равенстве сохраняется порядок ввода. `tags` — необязательные метаданные. `index` назначает среда выполнения; вручную его не пишите.
 
-Case and full-width variants normalize to one key. Continuous Chinese text supports
-longest registered substrings; Latin words require whole-word boundaries. A spaced
-phrase currently matches from its first word. Text split across DOM text nodes is not
-joined. Sent chat messages are covered; editable inputs, links, buttons, sidebar and
-settings text are excluded.
+Регистр, полная ширина и пунктуация нормализуются к одному ключу. Побеждает самое длинное зарегистрированное совпадение; для латинских и кириллических слов обязательны границы слова (`WHO` не срабатывает внутри `WHOLE`, `токен` — внутри `токенизатор`). Составной термин с пробелом сейчас срабатывает с первого слова. Текст, разорванный между текстовыми узлами DOM, не склеивается. Охватываются отправленные сообщения чата; редактируемые поля ввода, ссылки, кнопки, текст боковой панели и настроек исключены.
 
-## Runtime contract and verification
+## Контракт времени выполнения и проверка
 
-- `package.json` → `dsh.client.inject` declares module dependencies:
-  `@deepseek-ai/dsh-client-ui-renderer`, the provider of `slots` in the tested version.
-- The browser factory exports `inject = ['slots']`: this separate service dependency
-  authorizes `ctx.slots`. An empty export causes `cannot get property "slots" without inject`.
-- `shell.overlay` is registered through `ctx.slots.inject`; styles are React `<style>`
-  elements. There is no injected/global `styles` helper.
-- Do not hand-edit generated `plugin/client-inline.js`, `plugin/cordis-define.json`,
-  or `lib/**`; change source/templates and rebuild.
-- Successful bundle delivery or a permissive mocked context does not prove activation.
-  Verify in a browser; `__hoverGlossaryDiag__` gives console diagnostics without extra UI.
-- `test/browser.mjs` tests a running installation, existing conversation WHO
-  text, and transient DOM fixtures. See `DEVELOPMENT.md` for environment variables.
-  Run again after a fresh Host process starts to prove persistence. Keep authentication
-  URLs out of reports.
+- `package.json` → `dsh.client.inject` объявляет зависимости модулей: `@deepseek-ai/dsh-client-ui-renderer`, поставщик `slots` в проверенной версии.
+- Браузерная фабрика экспортирует `inject = ['slots']`: эта отдельная сервисная зависимость разрешает `ctx.slots`. Пустой экспорт даёт `cannot get property "slots" without inject`.
+- `shell.overlay` регистрируется через `ctx.slots.inject`; стили — React-элементы `<style>`. Внедряемого или глобального помощника `styles` нет.
+- Не правьте вручную сгенерированные `plugin/client-inline.js`, `plugin/cordis-define.json` или `lib/**`; меняйте исходники и шаблоны, затем пересобирайте.
+- Успешная доставка бандла или мок-контекст, который всё разрешает, ещё не доказывают активацию. Проверяйте в браузере; `__hoverGlossaryDiag__` даёт диагностику в консоли без дополнительного интерфейса.
+- `test/browser.mjs` проверяет запущенную установку, текст `WHO` в существующем диалоге и временные DOM-образцы. Переменные окружения — в `DEVELOPMENT.md`. Запускайте снова после старта свежего процесса Host, чтобы доказать, что установка переживает перезапуск. Не включайте аутентифицированные URL в отчёты.
 
-Official contracts: [services](https://deepseek-harness.github.io/deepseek-harness/en/develop/framework/service)
-and [slots](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/slots).
+Официальные контракты: [сервисы](https://deepseek-harness.github.io/deepseek-harness/en/develop/framework/service) и [слоты](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/slots).

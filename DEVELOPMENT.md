@@ -1,43 +1,43 @@
-# hover-glossary 开发说明
+# hover-glossary: руководство по разработке
 
-可持久安装的浏览器插件：在用户与助手聊天正文中悬停，显示词语的多个释义。安装见[仓库首页](README.md)，维护见[glossary-mapping skill](.dsh/skills/glossary-mapping/SKILL.md)。
+Клиентский плагин с постоянной установкой: наведение курсора в тексте сообщений пользователя и ассистента показывает несколько толкований слова. Установка описана в [README](README.md), сопровождение — в [навыке glossary-mapping](.dsh/skills/glossary-mapping/SKILL.md).
 
-## 源码与构建
+## Исходники и сборка
 
-- `src/seed-data.mjs`：唯一持久词库，词 → 条目数组。
-- `src/lexicon.mjs`：`Map<normalizedKey, Entry[]>`、归一化、光标处最长匹配。
-- `plugin/client-panel.js`：浏览器模块模板，字符几何命中、聊天范围、浮层与监听器生命周期。
-- `scripts/build-client.mjs`：生成内联副本与根目录的 `lib/`（仓库根本身就是可安装的 profile 包）。导入构建函数不会修改产物。
-- `plugin/host-service.js`、`plugin/cordis-define.json`：保留的旧实验产物；当前安装与查询不使用它们。
+- `src/seed-data.mjs` — единственный постоянный словарь: термин → массив толкований.
+- `src/lexicon.mjs` — `Map<normalizedKey, Entry[]>`, нормализация и поиск самого длинного совпадения под курсором.
+- `plugin/client-panel.js` — шаблон браузерного модуля: геометрия символов, область чата, жизненный цикл всплывающей подсказки и слушателей.
+- `scripts/build-client.mjs` — собирает встроенную копию и `lib/` в корне (корень репозитория сам является устанавливаемым пакетом профиля). Импорт функции сборки не изменяет артефакты.
+- `plugin/host-service.js`, `plugin/cordis-define.json` — сохранённые артефакты прежних экспериментов; текущая установка и поиск их не используют.
 
 ```powershell
 node scripts/build-client.mjs
 node test/run.mjs
 ```
 
-测试不会自动重建产物，因此能发现忘记构建的改动。
+Тесты не пересобирают артефакты автоматически, поэтому забытая сборка проявится при проверке.
 
-## 两种依赖声明
+## Два вида объявлений зависимостей
 
-`package.json` 的 `dsh.client.inject` 是模块图依赖，指向提供运行时服务的 `@deepseek-ai/dsh-client-ui-renderer`。
-浏览器 factory 导出的 `inject = ['slots']` 才是 Cordis 服务依赖声明，允许 `apply(ctx)` 访问 `ctx.slots`。
-缺失后者会出现 `cannot get property "slots" without inject`。纯前端插件同样需要声明客户端服务依赖。
+`dsh.client.inject` в `package.json` — зависимость графа модулей, которая указывает на `@deepseek-ai/dsh-client-ui-renderer`, предоставляющий сервис `slots` во время выполнения.
+Экспортируемый браузерной фабрикой `inject = ['slots']` — это уже объявление сервисной зависимости Cordis, которое разрешает `apply(ctx)` обращаться к `ctx.slots`.
+Без второго получите `cannot get property "slots" without inject`. Чисто клиентскому плагину тоже нужно объявлять клиентскую сервисную зависимость.
 
-浮层等待 `shell.overlay` 声明后注册；CSS 用 React `<style>` 管理，没有 `styles` 全局。卸载时移除鼠标、滚动和失焦监听器。
+Всплывающая подсказка ждёт объявления `shell.overlay` и только затем регистрируется; CSS управляется React-элементом `<style>`, глобального `styles` нет. При выгрузке снимаются слушатели mousemove, scroll и blur.
 
-依据：[服务依赖](https://deepseek-harness.github.io/deepseek-harness/en/develop/framework/service)、[Slot 生命周期](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/slots)、[Web Client 加载链](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/web-client)。
+Источники: [сервисные зависимости](https://deepseek-harness.github.io/deepseek-harness/en/develop/framework/service), [жизненный цикл слотов](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/slots), [цепочка загрузки Web-клиента](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/web-client).
 
-## 真实浏览器验证
+## Проверка в реальном браузере
 
-需要已安装的 Playwright、Edge 和运行中的 Harness：
+Нужны установленный Playwright, Edge и запущенный Harness:
 
 ```powershell
-$env:DSH_TEST_LOG = '<Harness 启动日志路径>'
-# 或设置 DSH_TEST_URL 为启动时打印的认证 URL；测试不会输出该 URL。
-$env:PLAYWRIGHT_MODULE = '<playwright/index.mjs 的绝对路径>'
+$env:DSH_TEST_LOG = '<путь к журналу запуска Harness>'
+# или задайте DSH_TEST_URL — аутентифицированный URL, напечатанный при запуске; тест не выводит этот URL.
+$env:PLAYWRIGHT_MODULE = '<абсолютный путь к playwright/index.mjs>'
 node test/browser.mjs
 ```
 
-测试打开“DeepSeek 词联想插件开发”既有会话，验证原有助手消息的 WHO 浮层，再用临时 DOM 样本检查用户/助手两种区域的五个示例词、中文词、短语、排除区域、滚动和刷新。样本不会保存到会话或请求模型。可用 `DSH_TEST_SESSION` 指定另一个含 WHO 的会话。
+Тест открывает существующий диалог о разработке плагина, проверяет всплывающую подсказку `WHO` в существующем сообщении ассистента, а затем на временных DOM-образцах — пять слов-примеров в зонах пользователя и ассистента, кириллические термины, фразы, исключённые области, прокрутку и обновление страницы. Образцы не сохраняются в диалоге и не отправляются модели. Через `DSH_TEST_SESSION` можно указать другой диалог, содержащий `WHO`.
 
-持久化验证须另外重启 Harness 进程后再运行浏览器测试；只确认服务端发出 bundle 不能证明插件能激活。
+Чтобы убедиться, что установка переживает перезапуск, отдельно перезапустите процесс Harness и снова запустите браузерный тест; подтверждение выдачи бандла сервером ещё не доказывает, что плагин активируется.

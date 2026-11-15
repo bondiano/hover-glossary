@@ -1,8 +1,8 @@
-# hover-glossary bundle patch: mount the hover-glossary plugin.
+# Патч бандла hover-glossary: монтирует плагин hover-glossary.
 #
-# Applied when this bundle appears in a profile's dsh.profile.bundles list.
-# The host half (package root) is a no-op; the browser half (dsh.client) is
-# discovered automatically through the package's dsh.client declaration +
+# Применяется, когда этот бандл попадает в список dsh.profile.bundles профиля.
+# Host-половина (корень пакета) ничего не делает; браузерная половина (dsh.client)
+# обнаруживается автоматически по объявлению dsh.client в package.json и
 # exports["./client"].
 
 - insert:

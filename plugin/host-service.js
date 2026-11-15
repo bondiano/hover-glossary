@@ -1,22 +1,23 @@
 /**
  * hover-glossary / plugin/host-service.js
  *
- * Cordis Host 半的源码: 纯 JS 函数体 (无 import/require)。
- * "__INLINE_SOURCE__" 占位符由 scripts/build-client.mjs 替换为 src/ 的内联副本。
+ * Исходник host-половины Cordis: чистый JS-код функции (без import/require).
+ * Плейсхолдер "__INLINE_SOURCE__" заменяется встроенной копией src/.
  *
- * 职责:
- *   - 在 Host 侧持有权威词库 (src/seed-data.mjs 的 SEED_TABLE)
- *   - 通过 harness.handle('glossary/resolve') 给 Client 提供 JSON 查询
- *   - 允许 Client 追加自定义词条 (glossary/define), 演示 1 -> N 可扩展
+ * Задачи:
+ *   - держать на стороне Host авторитетный словарь (SEED_TABLE из src/seed-data.mjs)
+ *   - отдавать Client JSON-запросы через harness.handle('glossary/resolve')
+ *   - разрешать Client добавлять свои толкования (glossary/define): демонстрация
+ *     расширяемости 1 -> N
  */
 
-/* ================= 内联区开始 (build-client.mjs 生成) ================= */
+/* ============ начало встроенного блока (генерирует build-client.mjs) ============ */
 /*__INLINE_SOURCE__*/
-/* ================= 内联区结束 ================= */
+/* ============ конец встроенного блока ============ */
 
 const INDEX = createLexicon(SEED_TABLE);
 
-/** 把词条裁剪成只含纯字符串的最小 JSON, 避免把内部对象直接抛给 Client */
+/** Обрезает толкование до минимального JSON из чистых строк, чтобы не отдавать Client внутренние объекты */
 function project(entry) {
   return {
     index: entry.index,
@@ -33,7 +34,7 @@ function emptyAnswer(cursor) {
 return {
   apply(ctx) {
     if (typeof harness === 'undefined' || harness === null) {
-      console.error('harness 不可用: 悬停词典未提供 RPC');
+      console.error('harness недоступен: словарь при наведении не предоставит RPC');
       return;
     }
 
@@ -42,7 +43,7 @@ return {
       const text = typeof payload.text === 'string' ? payload.text : '';
       const cursor = Number(payload.cursor) || 0;
 
-      // 情况 A: Client 直接给出词 (悬停/点击预置词)
+      // Случай A: Client прислал само слово (наведение или клик по слову словаря)
       if (typeof payload.term === 'string' && payload.term.length > 0) {
         const entries = INDEX.lookup(payload.term);
         const hit = tokenAt(text, cursor);
@@ -58,7 +59,7 @@ return {
         };
       }
 
-      // 情况 B: 用光标位置解析
+      // Случай B: разбор по позиции курсора
       if (typeof text !== 'string' || text.length === 0) return emptyAnswer(cursor);
       const at = INDEX.lookupAt(text, cursor, { keepLeft: payload.keepLeft !== false });
       return {
@@ -79,13 +80,13 @@ return {
       const term = typeof payload.term === 'string' ? payload.term : '';
       const items = Array.isArray(payload.entries) ? payload.entries : [];
       if (term.length === 0 || items.length === 0) {
-        return { ok: false, error: 'term 与 entries 都不可为空' };
+        return { ok: false, error: 'term и entries не могут быть пустыми' };
       }
       INDEX.add(term, items);
       return { ok: true, term, total: INDEX.lookup(term).length, words: INDEX.size, items: INDEX.itemCount };
     });
     ctx.effect(() => disposeDefine);
 
-    console.log('[hover-glossary] 词库就绪: ' + INDEX.size + ' 词 / ' + INDEX.itemCount + ' 条');
+    console.log('[hover-glossary] словарь готов: слов ' + INDEX.size + ', толкований ' + INDEX.itemCount);
   },
 };

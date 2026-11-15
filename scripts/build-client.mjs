@@ -1,19 +1,22 @@
 /**
  * hover-glossary / scripts/build-client.mjs
  *
- * 从 src/ 的单一实现生成产物:
+ * Собирает артефакты из единственной реализации в src/:
  *
- * 1. plugin/cordis-define.json —— 动态插件 (进程内, 重启消失) 的 { host, client } 函数体。
- * 2. lib/ —— 仓库根目录本身就是可持久安装的 profile 包:
- *      lib/index.js      host 半边: 空 apply (纯客户端能力)
+ * 1. plugin/cordis-define.json — тела функций { host, client } динамического
+ *    плагина (живёт в процессе, исчезает после перезапуска).
+ * 2. lib/ — сам корень репозитория является устанавливаемым профильным пакетом:
+ *      lib/index.js      host-половина: пустой apply (всё на клиенте)
  *      lib/client.js     browser module: window.__ModuleLoader__.load({ id, factory })
  *
- * 根 package.json 是手工维护的发布清单 (含 dsh.bundle / dsh.client 声明),
- * 本脚本不生成它; 改动清单字段后运行 test/ 里的契约用例校验。
+ * Корневой package.json — манифест публикации, он правится вручную;
+ * скрипт его не генерирует. После правки полей запустите контрактные тесты
+ * из test/.
  *
- * 之所以能纯客户端: 词库内联在浏览器侧, 不需要 RPC, 也不依赖会话级服务。
+ * Полностью клиентская схема: словарь встроен в браузерную сборку, RPC и
+ * сервисы сессии не нужны.
  *
- * 运行: node scripts/build-client.mjs
+ * Запуск: node scripts/build-client.mjs
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -22,12 +25,12 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 
-/** 去掉 JSDoc 块注释 (其中可能含有 import 字样, 会干扰闭包解析) */
+/** Убирает блочные JSDoc-комментарии (в них бывает слово import, мешающее разбору замыкания) */
 function stripDocs(source) {
   return source.replace(/\/\*\*[\s\S]*?\*\//g, '');
 }
 
-/** 去掉 ESM 的 export 关键字, 保留实现 */
+/** Убирает ключевое слово export у ESM, оставляя реализацию */
 function stripExports(source) {
   return source.replace(/^export\s+(?=(class|function|const|let|var)\b)/gm, '');
 }
@@ -42,45 +45,47 @@ function loadInline(relPath) {
 }
 
 /**
- * 生成内联源码 (导出以便测试直接复用, 避免测试与构建逻辑漂移)。
+ * Формирует встроенный исходник (экспортируется, чтобы тесты использовали
+ * ту же логику и не расходились со сборкой).
  * @returns {string}
  */
 export function buildInlineSource() {
   const lexiconCode = loadInline('src/lexicon.mjs');
   const seedCode = loadInline('src/seed-data.mjs');
-  return `/* 由 scripts/build-client.mjs 生成, 请勿手改; 改 src/ 后重新构建 */
+  return `/* Сгенерировано scripts/build-client.mjs, править вручную нельзя; после правок src/ пересоберите */
 ${lexiconCode}
 
-/* ---- 预置词库 (来自 src/seed-data.mjs) ---- */
+/* ---- встроенный словарь (из src/seed-data.mjs) ---- */
 ${seedCode}
 `;
 }
 
 const INLINE_MARKER =
-  /\/\* =+ 内联区开始[^*]*\*\/\n[ \t]*\/\*__INLINE_SOURCE__\*\/\n[ \t]*\/\* =+ 内联区结束 =+ \*\//;
+  /\/\* =+ начало встроенного блока[^*]*\*\/\n[ \t]*\/\*__INLINE_SOURCE__\*\/\n[ \t]*\/\* =+ конец встроенного блока =+ \*\//;
 
 /**
- * 把模板里的内联占位符替换成 src/ 的副本。
+ * Подставляет в шаблон встроенную копию src/ вместо плейсхолдера.
  * @param {string} relPath
  * @returns {string}
  */
 export function composeTemplate(relPath) {
   const template = readFileSync(resolve(root, relPath), 'utf8');
-  if (!INLINE_MARKER.test(template)) throw new Error(`${relPath} 缺少内联区占位标记`);
+  if (!INLINE_MARKER.test(template)) throw new Error(`${relPath}: нет маркеров встроенного блока`);
   const composed = template.replace(
     INLINE_MARKER,
-    `/* ===== 内联区开始 (由 build-client.mjs 从 src/ 生成) ===== */\n${buildInlineSource()}\n/* ===== 内联区结束 ===== */`,
+    `/* ===== начало встроенного блока (сгенерировано build-client.mjs из src/) ===== */\n${buildInlineSource()}\n/* ===== конец встроенного блока ===== */`,
   );
-  const start = composed.indexOf('内联区开始');
-  const end = composed.indexOf('内联区结束', start);
+  const start = composed.indexOf('начало встроенного блока');
+  const end = composed.indexOf('конец встроенного блока', start);
   if (start < 0 || end < 0 || composed.slice(start, end).includes('__INLINE_SOURCE__')) {
-    throw new Error(`${relPath} 内联区仍有未替换的占位符`);
+    throw new Error(`${relPath}: в встроенном блоке остался плейсхолдер`);
   }
   return composed;
 }
 
 /**
- * 校验一段源码是合法的函数体 (new Function 只做语法检查, 不执行)。
+ * Проверяет, что исходник — синтаксически корректное тело функции
+ * (new Function только проверяет синтаксис, не выполняя код).
  * @param {string} source
  * @param {string} label
  */
@@ -89,24 +94,24 @@ export function assertParses(source, label) {
     // eslint-disable-next-line no-new-func
     new Function(source);
   } catch (error) {
-    throw new Error(`${label} 语法检查失败: ${error.message}`);
+    throw new Error(`проверка синтаксиса ${label} не прошла: ${error.message}`);
   }
   return true;
 }
 
-/** 动态插件版本的 host 半边 (harness.handle RPC, 仅供进程内使用) */
+/** Host-половина динамического плагина (RPC harness.handle, только внутри процесса) */
 function buildDynamicHostSource() {
   const composed = composeTemplate('plugin/host-service.js');
-  if (/^\s*(import|export)\s/m.test(composed)) throw new Error('host 半边不应包含 import/export');
+  if (/^\s*(import|export)\s/m.test(composed)) throw new Error('в host-половине не должно быть import/export');
   assertParses(composed, 'dynamic host');
   return composed;
 }
 
-/** 静态 profile 包的 host 半边: 纯客户端能力, host 侧无事可做 */
+/** Host-половина статического профильного пакета: всё на клиенте, Host ничего не делает */
 export function buildPackageHostSource() {
   return [
     '// hover-glossary profile package: host loader entry.',
-    '// 本插件是纯浏览器侧能力 (词库内联在 client bundle 里), host 侧不提供任何服务。',
+    '// Плагин полностью клиентский (словарь встроен в client bundle), host-сервисов нет.',
     'function apply() {}',
     'export { apply };',
     '',
@@ -119,7 +124,7 @@ export function build() {
   mkdirSync(resolve(root, 'plugin'), { recursive: true });
   writeFileSync(resolve(root, 'plugin/client-inline.js'), out, 'utf8');
 
-  // ---- 产物 1: 动态插件 ----
+  // ---- артефакт 1: динамический плагин ----
   const dynamicHost = buildDynamicHostSource();
   const browserModule = composeTemplate('plugin/client-panel.js');
   assertParses(browserModule, 'browser module');
@@ -128,8 +133,8 @@ export function build() {
     resolve(root, 'plugin/cordis-define.json'),
     JSON.stringify(
       {
-        name: 'Hover Glossary',
-        purpose: '光标悬停在对话正文的词上时显示该词的 1..N 条联想释义',
+        name: 'Толковый словарь при наведении',
+        purpose: 'показывает 1..N толкований слова, на которое наведён курсор в тексте диалога',
         code: { host: dynamicHost, client: browserModule },
       },
       null,
@@ -138,15 +143,16 @@ export function build() {
     'utf8',
   );
 
-  // ---- 产物 2: 仓库根目录的持久安装包 (lib/) ----
+  // ---- артефакт 2: устанавливаемый пакет в корне репозитория (lib/) ----
   mkdirSync(resolve(root, 'lib'), { recursive: true });
   writeFileSync(resolve(root, 'lib/index.js'), buildPackageHostSource(), 'utf8');
   writeFileSync(resolve(root, 'lib/client.js'), browserModule, 'utf8');
 
-  console.log(`[build] plugin/client-inline.js (${out.length} chars)`);
+  console.log(`[build] plugin/client-inline.js (${out.length} символов)`);
   console.log(`[build] plugin/cordis-define.json (host ${dynamicHost.length} / client ${browserModule.length})`);
   console.log('[build] lib/ (index.js + client.js)');
 }
 
-// 测试导入纯构建函数时不能重写产物, 否则“产物过期”检测会自行修复被测文件。
+// Если тесты импортируют чистые функции сборки, артефакты перезаписывать нельзя,
+// иначе проверка «артефакты устарели» чинит сам проверяемый файл.
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) build();

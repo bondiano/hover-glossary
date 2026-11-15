@@ -1,13 +1,14 @@
 /**
  * hover-glossary / test/inline-artifact.test.mjs
  *
- * 用例 6: 客户端内联副本与 src/ 保持一致。
+ * Тест 6: встроенная клиентская копия совпадает с src/.
  *
- * Cordis 的 Client 半不能 import, 只能内联 src/lexicon.mjs 的实现。
- * 本用例把内联副本放进 vm 沙箱求值, 并与 src/ 的查询结果逐一对比,
- * 保证 plugin/client-inline.js 不会悄悄过期。
+ * Клиентская половина не может использовать import, поэтому реализация из
+ * src/lexicon.mjs встраивается в сборку. Тест выполняет встроенную копию в
+ * песочнице vm и сравнивает её результаты с src/, чтобы
+ * plugin/client-inline.js не устаревал незаметно.
  *
- * 运行: node test/inline-artifact.test.mjs
+ * Запуск: node test/run.mjs
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,14 +23,14 @@ import { buildInlineSource, composeTemplate, buildPackageHostSource } from '../s
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 用例 6 使用的 "真实正文" 样本: 覆盖英文词、多字词与跨空格短语 */
+/** «Реальный текст» для теста 6: латиница, кириллица и словосочетания */
 const SAMPLE_TEXT = [
-  '我输入: 请解释 WHO 与 United Nations 的关系',
-  '我输出: WHO 即 世卫组织, 也叫 世界卫生组织; DSH 的 Cordis 插件负责扩展。',
-  '再输入: API 和 LLM 分别是什么? DeepSeek 也收录了吗',
+  'Я спросил: объясни WHO и United Nations в двух словах',
+  'Ответ: WHO — это ВОЗ, она же Всемирная организация здравоохранения; в DSH плагины расширяет Cordis.',
+  'Ещё: чем API отличается от LLM и при чём тут DeepSeek',
 ].join('\n');
 
-/** 在沙箱里求值内联源码, 取回它自己构造的 Lexicon */
+/** Выполняет встроенный исходник в песочнице и забирает его собственный Lexicon */
 function loadInlineLexicon() {
   const source = readFileSync(resolve(root, 'plugin/client-inline.js'), 'utf8');
   const sandbox = {};
@@ -43,16 +44,15 @@ function loadInlineLexicon() {
 const inline = loadInlineLexicon();
 const source = createLexicon(SEED_TABLE);
 
-test('用例6: 内联的客户端副本与 src/ 行为完全一致', () => {
-  // 结构一致
+test('тест6: встроенная клиентская копия полностью совпадает с src/', () => {
   assert.equal(inline.size, source.size);
   assert.equal(inline.itemCount, source.itemCount);
 
-  // 词条逐项一致 (含条目顺序与编号)。用序列化比较, 因为沙箱里的数组来自另一个 realm,
-  // deepEqual 会因原型不同而判不等。
+  // Толкования сверяются сериализацией: массивы из песочницы принадлежат
+  // другому realm, и deepEqual счёл бы их разными из-за прототипов.
   assert.equal(JSON.stringify(inline.list()), JSON.stringify(source.list()));
 
-  // 光标查询在整段真实正文的每一个位置都一致
+  // Поиск по курсору совпадает на каждой позиции реального текста
   const full = SAMPLE_TEXT;
   let checked = 0;
   for (let cursor = 0; cursor <= full.length; cursor += 1) {
@@ -61,37 +61,39 @@ test('用例6: 内联的客户端副本与 src/ 行为完全一致', () => {
     assert.deepEqual(
       { term: a.term, key: a.key, start: a.start, end: a.end, n: a.entries.length },
       { term: b.term, key: b.key, start: b.start, end: b.end, n: b.entries.length },
-      `光标 ${cursor} 处两份实现结果不一致`,
+      `на позиции ${cursor} две реализации расходятся`,
     );
     checked += 1;
   }
-  assert.ok(checked > 100, '应覆盖整段文本');
-  assert.ok(source.lookupAt(full, full.indexOf('WHO')).entries.length === 2, '样本文本应能被解析');
+  assert.ok(checked > 100, 'должен быть проверен весь текст');
+  assert.ok(source.lookupAt(full, full.indexOf('WHO')).entries.length === 2, 'текст должен разбираться');
 
-  // 内联源码里不能残留 ESM 语法, 否则 Cordis 客户端闭包会解析失败
+  // Во встроенной копии не должно остаться ESM-синтаксиса, иначе клиентское
+  // замыкание Cordis не распарсится
   const raw = readFileSync(resolve(root, 'plugin/client-inline.js'), 'utf8');
-  assert.ok(!/^\s*import\s/m.test(raw), '内联副本不应包含 import');
-  assert.ok(!/^\s*export\s/m.test(raw), '内联副本不应包含 export');
-  assert.ok(!/\brequire\s*\(/.test(raw), '内联副本不应包含 require');
+  assert.ok(!/^\s*import\s/m.test(raw), 'во встроенной копии не должно быть import');
+  assert.ok(!/^\s*export\s/m.test(raw), 'во встроенной копии не должно быть export');
+  assert.ok(!/\brequire\s*\(/.test(raw), 'во встроенной копии не должно быть require');
 });
 
-test('用例7: 产物与构建脚本的输出保持同步 (未过期)', () => {
+test('тест7: артефакты совпадают с выводом сборщика (не устарели)', () => {
   const expected = buildInlineSource();
   const actual = readFileSync(resolve(root, 'plugin/client-inline.js'), 'utf8');
-  assert.equal(actual, expected, 'plugin/client-inline.js 已过期, 请运行 node scripts/build-client.mjs');
+  assert.equal(actual, expected, 'plugin/client-inline.js устарел: запустите node scripts/build-client.mjs');
 
-  // 两套产物必须来自同一份内联源码, 否则动态版与持久版会漂移
+  // Оба артефакта должны происходить из одного встроенного исходника, иначе
+  // динамическая и постоянная версии разойдутся
   const bundle = readFileSync(resolve(root, 'lib/client.js'), 'utf8');
   const defineJson = JSON.parse(readFileSync(resolve(root, 'plugin/cordis-define.json'), 'utf8'));
-  assert.equal(defineJson.code.client, bundle, 'lib/client.js 与 cordis-define.json 的 client 不一致');
-  assert.ok(bundle.includes(expected), 'profile 包未包含内联词库');
-  assert.equal(bundle, composeTemplate('plugin/client-panel.js'), '客户端模板改动后必须重新构建');
+  assert.equal(defineJson.code.client, bundle, 'lib/client.js и cordis-define.json рассинхронизированы');
+  assert.ok(bundle.includes(expected), 'профильный пакет не содержит встроенный словарь');
+  assert.equal(bundle, composeTemplate('plugin/client-panel.js'), 'после правки шаблона клиента нужна пересборка');
   assert.equal(readFileSync(resolve(root, 'lib/index.js'), 'utf8'), buildPackageHostSource());
 });
 
 /**
- * 在沙箱里以浏览器语义加载 profile 包的 client bundle:
- * 提供 window.__ModuleLoader__ 与 require 桩, 取回 factory。
+ * Загружает client bundle профильного пакета с семантикой браузера:
+ * подставляет window.__ModuleLoader__ и заглушку require, возвращает factory.
  */
 function loadBrowserModule() {
   const bundle = readFileSync(resolve(root, 'lib/client.js'), 'utf8');
@@ -109,32 +111,42 @@ function loadBrowserModule() {
   return { definition: captured, sandbox };
 }
 
-test('用例13: 仓库根目录是合法的客户端插件包 (可持久安装的前提)', () => {
+test('тест13: корень репозитория — корректный клиентский плагин-пакет (условие установки)', () => {
   const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
-  // 契约: 本地包靠 dsh.client.platform 声明自己是浏览器插件, 否则加载器不会挂载
+  // Контракт: локальный пакет объявляет себя браузерным плагином через
+  // dsh.client.platform, иначе загрузчик его не смонтирует
   assert.equal(manifest.dsh.client.platform, 'web');
   assert.equal(manifest.type, 'module');
-  assert.ok(manifest.exports['./client'], '应导出 ./client');
+  assert.ok(manifest.exports['./client'], 'должен экспортироваться ./client');
 
-  // 契约: dsh.bundle.patch 指向真实存在的装配补丁, 否则 dsh plugin add 只会
-  // 把它当作普通依赖, 插件管理 UI 不会列出它, 也不会自动挂载
-  assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml', '应声明 dsh.bundle.patch');
-  assert.equal(manifest.exports['./cordis.patch.yml'], './cordis.patch.yml', '应导出 ./cordis.patch.yml');
+  // Контракт: dsh.bundle.patch указывает на существующий патч сборки, иначе
+  // dsh plugin add добавит пакет как обычную зависимость и UI плагинов его
+  // не покажет
+  assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml', 'должен быть объявлен dsh.bundle.patch');
+  assert.equal(manifest.exports['./cordis.patch.yml'], './cordis.patch.yml', 'должен экспортироваться ./cordis.patch.yml');
   const patch = readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8');
-  assert.ok(patch.includes(`name: '${manifest.name}'`), '装配补丁应按包名挂载本插件');
+  assert.ok(patch.includes(`name: '${manifest.name}'`), 'патч сборки должен монтировать пакет по его имени');
 
-  // host 半边必须是可被 Node 加载的 ESM, 且只导出 apply
+  // Русская локализация панели плагинов: экспортируемые locale-файлы
+  assert.equal(manifest.exports['./locale/*.json'], './locale/*.json', 'должен экспортироваться ./locale/*.json');
+  assert.ok(manifest.files.includes('locale'), 'locale должен попадать в пакет');
+  const ru = JSON.parse(readFileSync(resolve(root, 'locale/ru.json'), 'utf8'));
+  assert.equal(ru.meta.title, 'Толковый словарь при наведении');
+  assert.ok(ru.meta.description.length > 20 && !/[\u4e00-\u9fff]/.test(ru.meta.description));
+
+  // host-половина должна быть ESM, загружаемым Node, и экспортировать только apply
   const hostEntry = readFileSync(resolve(root, 'lib/index.js'), 'utf8');
-  assert.ok(/export\s*\{\s*apply\s*\}/.test(hostEntry), 'host 半边应导出 apply');
-  assert.ok(!/^\s*import\s/m.test(hostEntry), 'host 半边不需要 import');
+  assert.ok(/export\s*\{\s*apply\s*\}/.test(hostEntry), 'host-половина должна экспортировать apply');
+  assert.ok(!/^\s*import\s/m.test(hostEntry), 'host-половине не нужен import');
 
-  // client bundle 必须以模块加载器契约注册, 且 id 等于包名
+  // client bundle регистрируется по контракту загрузчика, id равен имени пакета
   const { definition } = loadBrowserModule();
-  assert.ok(definition, 'bundle 未调用 __ModuleLoader__.load');
-  assert.equal(definition.id, manifest.name, 'id 必须等于 package.json 的 name');
+  assert.ok(definition, 'bundle не вызвал __ModuleLoader__.load');
+  assert.equal(definition.id, manifest.name, 'id должен совпадать с name из package.json');
   assert.equal(typeof definition.factory, 'function');
 
-  // factory 返回 Cordis 对象插件; 纯客户端仍须声明客户端服务依赖。
+  // factory возвращает объект-плагин Cordis; чисто клиентский плагин всё равно
+  // обязан объявить зависимость от клиентского сервиса
   const reactStub = {
     createElement: () => ({}),
     useState: (initial) => [initial, () => {}],
@@ -142,41 +154,42 @@ test('用例13: 仓库根目录是合法的客户端插件包 (可持久安装�
   };
   const requireStub = (name) => {
     if (name === 'react') return reactStub;
-    throw new Error('不允许的 require: ' + name);
+    throw new Error('недопустимый require: ' + name);
   };
   const mod = definition.factory(requireStub);
   const plugin = mod && mod.default ? mod.default : mod;
-  assert.equal(typeof plugin.apply, 'function', 'factory 应导出 apply');
-  assert.equal(JSON.stringify(plugin.inject), '["slots"]', '必须声明 Cordis slots 服务');
+  assert.equal(typeof plugin.apply, 'function', 'factory должен экспортировать apply');
+  assert.equal(JSON.stringify(plugin.inject), '["slots"]', 'должна быть объявлена зависимость от сервиса slots');
 
-  // 关键契约: 必须声明 slots 依赖, 否则 ctx.slots 解析不到, 插件会静默失效。
-  // 这正是线上第一次 "完全没反应" 的原因 (ctx.get('slots') 返回 undefined)。
+  // Ключевой контракт: без объявления slots сервис ctx.slots не разрешается
+  // и плагин молча не работает (именно так случилось в первом запуске).
   assert.equal(
     JSON.stringify(manifest.dsh.client.inject),
     JSON.stringify(['@deepseek-ai/dsh-client-ui-renderer']),
-    'package.json 必须声明 slots 注入, 否则悬停字典在浏览器里不会注册任何东西',
+    'package.json должен объявлять внедрение slots, иначе словарь ничего не зарегистрирует',
   );
 
   const record = readFileSync(resolve(root, 'lib/client.js'), 'utf8');
 
-  // 取服务必须走已声明的注入 (ctx.slots); 只看代码行, 避免注释里的说明文字触发断言
+  // Сервис берётся только через объявленный inject (ctx.slots); проверяем
+  // строки кода без комментариев, чтобы пояснения не срабатывали как код
   const codeLines = record
     .split('\n')
     .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
     .join('\n');
-  assert.ok(/ctx\.slots/.test(codeLines), '应通过 ctx.slots 取得 slots 服务');
+  assert.ok(/ctx\.slots/.test(codeLines), 'сервис slots должен браться через ctx.slots');
   assert.ok(
     !/ctx\.get\(\s*['"]slots['"]\s*\)/.test(codeLines),
-    '不应再用 ctx.get 取 slots —— 它会静默返回 undefined 让插件无声失效',
+    'нельзя брать slots через ctx.get — он молча вернёт undefined',
   );
 
-  // 内联词库在浏览器侧独立可用: 不再依赖任何 RPC
+  // Встроенный словарь работает на клиенте сам: RPC больше не нужен
   [
     'host.call',
     "require('host')",
     'harness',
     'ctx.remote',
   ].forEach((forbidden) => {
-    assert.ok(!record.includes(forbidden), `持久版本不应依赖 ${forbidden}`);
+    assert.ok(!record.includes(forbidden), `постоянная версия не должна зависеть от ${forbidden}`);
   });
 });

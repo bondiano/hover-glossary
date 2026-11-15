@@ -1,31 +1,42 @@
 /**
  * hover-glossary / plugin/client-panel.js
  *
- * DSH 客户端插件包 (browser module) 的源码模板, 由 scripts/build-client.mjs 生成
- * profile 包 lib/client.js。契约与 @local/dsh-yukimi-theme 一致:
+ * Шаблон браузерного модуля клиентского плагина DSH; scripts/build-client.mjs
+ * собирает из него профильный пакет lib/client.js. Контракт:
  *   window.__ModuleLoader__.load({ id, factory })
- *   factory(require) 内 require 只解析包名/平台原语, 不支持相对路径 -> 逻辑必须内联。
+ *   внутри factory(require) разрешаются только имена пакетов и примитивы
+ *   платформы, относительные пути не поддерживаются -> вся логика встроена.
  *
- * 纯客户端: 词库内联在浏览器侧, 不需要 host 半边、不需要 RPC、不依赖任何会话级
- * 服务; 仅通过 inject 声明客户端 slots 服务。profile 安装使其重启后依然生效。
+ * Полностью клиентский плагин: словарь встроен в браузерную сборку, host-половина
+ * и RPC не нужны, сервисы сессии не используются; через inject объявляется только
+ * клиентский сервис slots. Установка в профиль сохраняет плагин после перезапуска.
  *
- * "__INLINE_SOURCE__" 占位符由 scripts/build-client.mjs 替换为 src/ 的内联副本。
+ * Плейсхолдер "__INLINE_SOURCE__" заменяется встроенной копией src/.
  */
 
 window.__ModuleLoader__.load({
-  // id 必须等于 package.json 的 name
+  // id обязан совпадать с name в package.json
   id: 'hover-glossary',
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
     const React = require('react');
 
-    /* ================= 内联区开始 (build-client.mjs 生成) ================= */
+    /* ============ начало встроенного блока (генерирует build-client.mjs) ============ */
     /*__INLINE_SOURCE__*/
-    /* ================= 内联区结束 ================= */
+    /* ============ конец встроенного блока ============ */
 
-    /** 词库索引: 纯客户端, 查询不再跨进程 */
+    /** Индекс словаря: всё на клиенте, запросы не покидают браузер */
     const INDEX = createLexicon(SEED_TABLE);
+
+    /** Склонение счётчика значений по правилам русского языка */
+    function countLabel(n) {
+      const mod10 = n % 10;
+      const mod100 = n % 100;
+      if (mod10 === 1 && mod100 !== 11) return n + ' значение';
+      if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return n + ' значения';
+      return n + ' значений';
+    }
 
     const CSS = [
       '.hg-tip{position:fixed;z-index:2147483000;max-width:min(380px,calc(100vw - 24px));pointer-events:none;box-sizing:border-box;',
@@ -55,10 +66,10 @@ window.__ModuleLoader__.load({
       return { root: window, doc };
     })();
 
-    /** 交互控件与其它浮层内不查询 */
+    /** Внутри интерактивных элементов и чужих подсказок не ищем */
     const INTERACTIVE = { button: 1, a: 1, input: 1, textarea: 1, select: 1, option: 1, summary: 1 };
 
-    /** 取某个文档坐标处的字符及其所在文本 */
+    /** Символ в точке документа и текст, из которого он взят */
     function charAtPoint(x, y) {
       if (!BROWSER) return null;
       const doc = BROWSER.doc;
@@ -86,12 +97,14 @@ window.__ModuleLoader__.load({
       const data = typeof node.data === 'string' ? node.data : '';
       if (data.length === 0) return null;
 
-      // caret 的 offset 可能落在所见字符右侧, 因此左右两侧都试
+      // offset каретки может встать справа от видимого символа, поэтому
+      // проверяем обе соседние позиции
       const candidates = [];
       if (offset > 0 && isWordChar(data[offset - 1])) candidates.push(offset - 1);
       if (offset < data.length && isWordChar(data[offset])) candidates.push(offset);
       for (const at of candidates) {
-        // caret API 会把行尾空白也吸附到最近文字; 验证指针确实落在字符矩形内。
+        // API каретки прилипает к ближайшему тексту даже на пустом месте,
+        // поэтому проверяем, что указатель реально попал в прямоугольник глифа.
         const glyph = doc.createRange();
         glyph.setStart(node, at);
         glyph.setEnd(node, at + 1);
@@ -102,7 +115,7 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    /** 从命中元素向上走, 判断能否查询, 并记录原因 */
+    /** Поднимаемся по дереву от найденного элемента и решаем, можно ли искать */
     function classify(element) {
       if (!element) return { ok: false, reason: 'no-element', chain: [] };
       const chain = [];
@@ -126,10 +139,10 @@ window.__ModuleLoader__.load({
       return { ok: inConversation, reason: inConversation ? 'conversation' : 'outside-conversation', chain };
     }
 
-    /** 启动自检 */
+    /** Самопроверка при запуске */
     function selfCheck() {
       const trace = {};
-      trace.index = INDEX.size + ' 词 / ' + INDEX.itemCount + ' 条';
+      trace.index = 'слов: ' + INDEX.size + ', толкований: ' + INDEX.itemCount;
       trace.hasElementFromPoint = !!(BROWSER && BROWSER.doc.elementFromPoint);
       trace.hasCaretRangeFromPoint = !!(BROWSER && BROWSER.doc.caretRangeFromPoint);
       trace.hasCaretPositionFromPoint = !!(BROWSER && BROWSER.doc.caretPositionFromPoint);
@@ -149,7 +162,7 @@ window.__ModuleLoader__.load({
         }
       }
       if (typeof globalThis !== 'undefined') globalThis.__hoverGlossaryDiag__ = trace;
-      console.log('[hover-glossary] 自检 ' + JSON.stringify(trace));
+      console.log('[hover-glossary] самопроверка ' + JSON.stringify(trace));
       return trace;
     }
 
@@ -172,7 +185,7 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'hg-tip-head' },
         React.createElement('span', { className: 'hg-tip-word' }, state.term),
-        React.createElement('span', { className: 'hg-tip-tag' }, state.entries.length + ' 条'),
+        React.createElement('span', { className: 'hg-tip-tag' }, countLabel(state.entries.length)),
       );
       const body = React.createElement(
         'ol',
@@ -190,7 +203,8 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
-      // 模块图依赖在 package.json 中; 服务依赖由下面导出的 inject 声明。
+      // Зависимости графа модулей описаны в package.json; зависимости сервисов
+      // объявляет экспортируемый ниже inject.
       const slots = ctx.slots;
 
       slots.inject('shell.overlay', () =>
@@ -202,7 +216,7 @@ window.__ModuleLoader__.load({
       );
 
       if (!BROWSER) {
-        console.error('当前环境没有 document: 悬停词典无法监听光标');
+        console.error('в окружении нет document: словарю при наведении некого слушать');
         return;
       }
 
@@ -218,7 +232,7 @@ window.__ModuleLoader__.load({
         }
       };
 
-      // 普通闭包节流, 不依赖任何注入服务
+      // Обычное замыкание-троттлинг, без внешних сервисов
       const onMove = (event) => {
         const now = Date.now();
         if (now - last < 50) return;
@@ -267,7 +281,8 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply;
-    // Cordis 的服务访问授权, 与 manifest 中的模块依赖不是同一个列表。
+    // Разрешение Cordis на доступ к сервисам: это не тот же список, что
+    // зависимости графа модулей в манифесте.
     exports.inject = ['slots'];
     return module.exports;
   },
