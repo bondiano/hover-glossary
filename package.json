@@ -44,7 +44,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bondiano/hover-glossary.git"
+    "url": "git+https://github.com/bondiano/hover-glossary.git"
   },
   "homepage": "https://github.com/bondiano/hover-glossary#readme",
   "bugs": {
