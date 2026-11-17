@@ -13,6 +13,7 @@
 	},
 	"files": [
 		"dist/**/*.js",
+		"!dist/test/",
 		"cordis.patch.yml",
 		"locale/*.json",
 		"README.md",
