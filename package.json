@@ -58,9 +58,7 @@
 		"lint:fix": "oxlint --fix --deny-warnings .",
 		"format": "oxfmt --write .",
 		"format:check": "oxfmt --check .",
-		"check": "npm run format:check && npm run lint && npm run typecheck && npm test",
-		"prepare": "npm run build",
-		"prepack": "npm run build"
+		"check": "npm run format:check && npm run lint && npm run typecheck && npm test"
 	},
 	"devDependencies": {
 		"@types/node": "22.18.6",
