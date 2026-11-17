@@ -1,6 +1,6 @@
 {
-  "meta": {
-    "title": "Hover glossary",
-    "description": "Hover a word in the chat body to see its 1..N glossary entries. The dictionary runs in the browser: no model requests, no tools, no system prompt."
-  }
+	"meta": {
+		"title": "Hover glossary",
+		"description": "Hover a word in the chat body to see its 1..N glossary entries. The model extends the glossary with project and domain terms through the glossary_define and glossary_lookup tools and a system-prompt section; entries are stored on disk, per project and globally."
+	}
 }

@@ -1,59 +1,76 @@
 {
-  "name": "hover-glossary",
-  "version": "1.2.0",
-  "description": "Клиентский плагин DSH: наведите курсор на слово в тексте диалога — всплывающая подсказка покажет 1..N толкований",
-  "type": "module",
-  "main": "lib/index.js",
-  "exports": {
-    ".": "./lib/index.js",
-    "./client": "./lib/client.js",
-    "./cordis.patch.yml": "./cordis.patch.yml",
-    "./locale/*.json": "./locale/*.json",
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "lib",
-    "src",
-    "scripts",
-    "plugin",
-    "locale",
-    "cordis.patch.yml",
-    "README.md",
-    "DEVELOPMENT.md",
-    "LICENSE"
-  ],
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-renderer"
-      ]
-    }
-  },
-  "scripts": {
-    "build": "node scripts/build-client.mjs",
-    "test": "node test/run.mjs",
-    "test:browser": "node test/browser.mjs"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/bondiano/hover-glossary.git"
-  },
-  "homepage": "https://github.com/bondiano/hover-glossary#readme",
-  "bugs": {
-    "url": "https://github.com/bondiano/hover-glossary/issues"
-  },
-  "keywords": [
-    "dsh-plugin",
-    "deepseek-harness",
-    "hover-glossary",
-    "russian"
-  ]
+	"name": "hover-glossary",
+	"version": "2.0.0",
+	"description": "Adaptive glossary for DeepSeek Harness: hover a word in the chat body to see its 1..N entries, and let the model record project-specific terms through glossary_define / glossary_lookup.",
+	"type": "module",
+	"main": "dist/index.js",
+	"exports": {
+		".": "./dist/index.js",
+		"./client": "./dist/client.js",
+		"./cordis.patch.yml": "./cordis.patch.yml",
+		"./locale/*.json": "./locale/*.json",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist/**/*.js",
+		"cordis.patch.yml",
+		"locale/*.json",
+		"README.md",
+		"LICENSE",
+		".gitattributes"
+	],
+	"dsh": {
+		"bundle": {
+			"patch": "./cordis.patch.yml"
+		},
+		"client": {
+			"platform": "web",
+			"inject": [
+				"@deepseek-ai/dsh-client-ui-renderer"
+			]
+		}
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bondiano/hover-glossary.git"
+	},
+	"homepage": "https://github.com/bondiano/hover-glossary#readme",
+	"bugs": {
+		"url": "https://github.com/bondiano/hover-glossary/issues"
+	},
+	"keywords": [
+		"dsh-plugin",
+		"deepseek-harness",
+		"hover-glossary",
+		"glossary",
+		"russian"
+	],
+	"license": "MIT",
+	"engines": {
+		"node": ">=22.13.0"
+	},
+	"scripts": {
+		"build": "tsc",
+		"typecheck": "tsc --noEmit",
+		"test": "npm run build && node --test dist/test/*.test.js",
+		"lint": "oxlint --deny-warnings .",
+		"lint:fix": "oxlint --fix --deny-warnings .",
+		"format": "oxfmt --write .",
+		"format:check": "oxfmt --check .",
+		"check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+		"prepare": "npm run build",
+		"prepack": "npm run build"
+	},
+	"devDependencies": {
+		"@types/node": "22.18.6",
+		"@types/react": "19.3.0",
+		"oxfmt": "0.78.0",
+		"oxlint": "1.93.0",
+		"oxlint-tsgolint": "7.0.2006",
+		"typescript": "7.0.2"
+	},
+	"dependencies": {
+		"effect": "^4.1.4",
+		"xstate": "^5.33.4"
+	}
 }

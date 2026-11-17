@@ -1,10 +1,11 @@
 # Патч бандла hover-glossary: монтирует плагин hover-glossary.
 #
 # Применяется, когда этот бандл попадает в список dsh.profile.bundles профиля.
-# Host-половина (корень пакета) ничего не делает; браузерная половина (dsh.client)
-# обнаруживается автоматически по объявлению dsh.client в package.json и
-# exports["./client"].
+# Host-половина регистрирует инструменты glossary_define / glossary_lookup,
+# секцию системного промпта и read-only роут со словарём для браузера;
+# браузерная половина (dsh.client) обнаруживается автоматически по объявлению
+# dsh.client в package.json и exports["./client"].
 
 - insert:
     - id: hover-glossary
-      name: 'hover-glossary'
+      name: "hover-glossary"
