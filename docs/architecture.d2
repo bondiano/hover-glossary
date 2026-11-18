@@ -1,0 +1,31 @@
+direction: down
+
+# hover-glossary: one glossary shared by the model (Host half) and the user (browser half)
+
+model_user: "DSH model agent\n[actor, tool calls]"
+browser_user: "DSH web user\n[actor, hover]"
+host_apply: "src/presentation/index.ts apply\n[Cordis plugin, TS]"
+tools: "buildTools / registerTool\n[glossary_define + glossary_lookup]"
+sysprompt: "ctx.systemPrompt.section\n[tool:hover-glossary guidance]"
+service: "createGlossaryService\n[application/glossary-service.ts]"
+machines: "lexiconLoad + termIntake\n[domain/machines, XState v5]"
+route: "registerLexiconRoute\n[GET /plugin-api/hover-glossary/lexicon]"
+client: "client.ts browser half\n[__ModuleLoader__ CJS, polls 30 s]"
+store: "global + project glossary.json\n[DSH_HOME/data + <root>/.dsh]"
+effect_dep: "effect 4.1.4\n[decodeStore schema]"
+xstate_dep: "xstate 5.33.4\n[createMachine, from v5]"
+react_dep: "react\n[require() from loader]"
+
+model_user -> tools: "defines and looks up terms"
+tools -> service: "reads and writes merged table"
+host_apply -> tools: "ctx.tools.register"
+host_apply -> sysprompt: "when to record a term"
+host_apply -> route: "ctx.inject webServer"
+service -> machines: "load and intake states"
+machines -> xstate_dep: "machine definitions"
+service -> store: "readStore / writeStore, atomic rename"
+store -> effect_dep: "schema decode, corrupt file quarantine"
+route -> service: "serves snapshot JSON"
+client -> route: "same-origin poll"
+browser_user -> client: "sees glosses on hover"
+client -> react_dep: "tip rendering"
