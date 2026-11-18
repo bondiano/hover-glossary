@@ -1,6 +1,6 @@
 {
 	"name": "hover-glossary",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"description": "Adaptive glossary for DeepSeek Harness: hover a word in the chat body to see its 1..N entries, and let the model record project-specific terms through glossary_define / glossary_lookup.",
 	"type": "module",
 	"main": "dist/index.js",
